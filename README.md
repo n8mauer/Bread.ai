@@ -12,21 +12,21 @@ Bread.ai is an iOS app that provides AI-powered knowledge about bread. Ask anyth
 ## Project Structure
 
 ```
-BreadAI/
-├── BreadAI/
-│   ├── BreadAIApp.swift       # Main app entry point
+BreadAi/
+├── BreadAi/
+│   ├── BreadAiApp.swift       # Main app entry point
 │   ├── ContentView.swift      # Main user interface
 │   ├── BreadService.swift     # Service handling bread-related queries
 │   ├── Assets.xcassets        # App assets and images
 │   ├── Preview Content/       # SwiftUI preview assets
 │   └── Info.plist             # App configuration
-└── BreadAITests/              # Unit test directory
+└── BreadAiTests/              # Unit test directory
 ```
 
 ## Development
 
 1. Clone the repository
-2. Open the BreadAI.xcodeproj file in Xcode
+2. Open the BreadAi.xcodeproj file in Xcode
 3. Build and run the app on a simulator or physical device
 
 ## Requirements
