@@ -77,3 +77,9 @@ struct ContentView_Previews: PreviewProvider {
         ContentView()
     }
 }
+
+#if compiler(>=5.9)
+#Preview {
+    ContentView()
+}
+#endif
