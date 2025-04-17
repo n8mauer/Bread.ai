@@ -1,5 +1,10 @@
 import SwiftUI
 
+// Custom brown color for iOS 14+ compatibility
+extension Color {
+    static let breadBrown = Color(red: 0.6, green: 0.4, blue: 0.2)
+}
+
 struct ContentView: View {
     @State private var breadQuery: String = ""
     @State private var response: String = ""
@@ -16,7 +21,7 @@ struct ContentView: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: 100, height: 100)
-                .foregroundColor(.brown)
+                .foregroundColor(.breadBrown)
                 .padding()
             
             TextField("Ask about bread...", text: $breadQuery)
@@ -43,7 +48,7 @@ struct ContentView: View {
                 }
                 .padding()
                 .frame(minWidth: 100)
-                .background(Color.brown)
+                .background(Color.breadBrown)
                 .foregroundColor(.white)
                 .cornerRadius(8)
             }
