@@ -14,13 +14,23 @@ Bread.ai is an iOS app that provides AI-powered knowledge about bread. Ask anyth
 ```
 BreadAi/
 ├── BreadAi/
-│   ├── BreadAiApp.swift       # Main app entry point
-│   ├── ContentView.swift      # Main user interface
-│   ├── BreadService.swift     # Service handling bread-related queries
-│   ├── Assets.xcassets        # App assets and images
-│   ├── Preview Content/       # SwiftUI preview assets
-│   └── Info.plist             # App configuration
+└── Assets.xcassets/                         # Asset catalog (App icons, images, colors)
+└── Preview Content/                         # Contains all code, assets, and app config
+    ├── Assets.xcassets/                     # Asset catalog (App icons, images, colors)
+    ├── BadgeCardView.swift                  # UI component to display earned badges
+    ├── BadgeModels.swift                    # Badge data models (types, properties)
+    ├── BreadAIApp.swift                     # App entry point (uses @main, sets initial view)
+    ├── BreadCardView.swift                  # UI component for showing bread recipe cards
+    ├── BreadRecipes.swift                   # Data/model for bread recipes
+    ├── BreadService.swift                   # Core logic or services for Bread.ai functionality
+    ├── ColorExtensions.swift                # Custom color definitions for app theme
+    ├── ContentView.swift                    # Primary container view, includes navigation logic
+    ├── Info.plist                           # App configuration and metadata
+    ├── LoginView.swift                      # Login screen UI
+    ├── MainTabView.swift                    # TabView setup for navigating between major screens
+    └── RecipeDetailView.swift               # Detail screen for a selected bread recipe
 └── BreadAiTests/              # Unit test directory
+
 ```
 
 ## Development
