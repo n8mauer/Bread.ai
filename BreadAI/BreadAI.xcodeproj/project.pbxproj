@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 54;
+	objectVersion = 56;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -12,6 +12,14 @@
 		840A45602A1B1A0000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 840A455F2A1B1A0000000001 /* Assets.xcassets */; };
 		840A45632A1B1A0000000001 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 840A45622A1B1A0000000001 /* Preview Assets.xcassets */; };
 		840A45652A1B1A0000000002 /* BreadService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 840A45642A1B1A0000000002 /* BreadService.swift */; };
+		DF04F1252DB18907001DB485 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF04F1242DB18907001DB485 /* LoginView.swift */; };
+		DF04F1272DB18E00001DB485 /* ColorExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF04F1262DB18E00001DB485 /* ColorExtensions.swift */; };
+		DF04F1292DB1B850001DB485 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF04F1282DB1B850001DB485 /* MainTabView.swift */; };
+		DF04F12B2DB1D120001DB485 /* BreadRecipes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF04F12A2DB1D120001DB485 /* BreadRecipes.swift */; };
+		DF04F12D2DB1D130001DB485 /* RecipeDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF04F12C2DB1D130001DB485 /* RecipeDetailView.swift */; };
+		DF04F12F2DB1D140001DB485 /* BreadCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF04F12E2DB1D140001DB485 /* BreadCardView.swift */; };
+		DF04F1312DB1E870001DB485 /* BadgeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF04F1302DB1E870001DB485 /* BadgeModels.swift */; };
+		DF04F1332DB1E880001DB485 /* BadgeCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF04F1322DB1E880001DB485 /* BadgeCardView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -22,6 +30,14 @@
 		840A45622A1B1A0000000001 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 		840A45642A1B1A0000000002 /* BreadService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreadService.swift; sourceTree = "<group>"; };
 		840A45662A1B1A0000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		DF04F1242DB18907001DB485 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		DF04F1262DB18E00001DB485 /* ColorExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorExtensions.swift; sourceTree = "<group>"; };
+		DF04F1282DB1B850001DB485 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
+		DF04F12A2DB1D120001DB485 /* BreadRecipes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreadRecipes.swift; sourceTree = "<group>"; };
+		DF04F12C2DB1D130001DB485 /* RecipeDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeDetailView.swift; sourceTree = "<group>"; };
+		DF04F12E2DB1D140001DB485 /* BreadCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreadCardView.swift; sourceTree = "<group>"; };
+		DF04F1302DB1E870001DB485 /* BadgeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BadgeModels.swift; sourceTree = "<group>"; };
+		DF04F1322DB1E880001DB485 /* BadgeCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BadgeCardView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -57,6 +73,14 @@
 				840A455B2A1B1A0000000001 /* BreadAIApp.swift */,
 				840A455D2A1B1A0000000001 /* ContentView.swift */,
 				840A45642A1B1A0000000002 /* BreadService.swift */,
+				DF04F1242DB18907001DB485 /* LoginView.swift */,
+				DF04F1282DB1B850001DB485 /* MainTabView.swift */,
+				DF04F12A2DB1D120001DB485 /* BreadRecipes.swift */,
+				DF04F12C2DB1D130001DB485 /* RecipeDetailView.swift */,
+				DF04F12E2DB1D140001DB485 /* BreadCardView.swift */,
+				DF04F1302DB1E870001DB485 /* BadgeModels.swift */,
+				DF04F1322DB1E880001DB485 /* BadgeCardView.swift */,
+				DF04F1262DB18E00001DB485 /* ColorExtensions.swift */,
 				840A455F2A1B1A0000000001 /* Assets.xcassets */,
 				840A45662A1B1A0000000001 /* Info.plist */,
 				840A45612A1B1A0000000001 /* Preview Content */,
@@ -69,7 +93,6 @@
 			children = (
 				840A45622A1B1A0000000001 /* Preview Assets.xcassets */,
 			);
-			name = "Preview Content";
 			path = "Preview Content";
 			sourceTree = "<group>";
 		};
@@ -100,7 +123,7 @@
 			isa = PBXProject;
 			attributes = {
 				LastUpgradeCheck = 1420;
-				ORGANIZATIONNAME = "n8mauer";
+				ORGANIZATIONNAME = n8mauer;
 				TargetAttributes = {
 					840A45572A1B1A0000000001 = {
 						CreatedOnToolsVersion = 14.2;
@@ -144,6 +167,9 @@
 			files = (
 				840A455E2A1B1A0000000001 /* ContentView.swift in Sources */,
 				840A455C2A1B1A0000000001 /* BreadAIApp.swift in Sources */,
+				DF04F1252DB18907001DB485 /* LoginView.swift in Sources */,
+				DF04F1292DB1B850001DB485 /* MainTabView.swift in Sources */,
+				DF04F1272DB18E00001DB485 /* ColorExtensions.swift in Sources */,
 				840A45652A1B1A0000000002 /* BreadService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -281,7 +307,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.n8mauer.BreadAI";
+				PRODUCT_BUNDLE_IDENTIFIER = com.n8mauer.BreadAI;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -302,7 +328,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.n8mauer.BreadAI";
+				PRODUCT_BUNDLE_IDENTIFIER = com.n8mauer.BreadAI;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
