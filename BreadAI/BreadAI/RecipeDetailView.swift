@@ -2,12 +2,12 @@ import SwiftUI
 
 struct RecipeDetailView: View {
     let bread: Bread
-    
+
     var body: some View {
         if bread.isSourdough {
             SourdoughRecipeView()
         } else {
-            ComingSoonView(breadType: bread.name)
+            AIRecipeView(breadType: bread.name)
         }
     }
 }
@@ -158,39 +158,169 @@ struct SourdoughRecipeView: View {
     }
 }
 
-struct ComingSoonView: View {
+struct AIRecipeView: View {
     let breadType: String
-    
+    @State private var recipe: AIRecipe?
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+
     var body: some View {
         ZStack {
             Color.breadBeige.ignoresSafeArea()
-            
-            VStack(spacing: 30) {
-                Image("bread.ai logo no background")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 120)
-                
-                Text(breadType)
-                    .font(.largeTitle.bold())
-                    .foregroundColor(.breadBrown)
-                
-                Text("Recipe Coming Soon!")
-                    .font(.title2)
-                    .foregroundColor(.gray)
+
+            if isLoading {
+                VStack(spacing: 20) {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                    Text("Generating \(breadType) recipe...")
+                        .font(.headline)
+                        .foregroundColor(.breadBrown)
+                    Text("Our AI baker is crafting the perfect recipe")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+            } else if let error = errorMessage {
+                VStack(spacing: 20) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 50))
+                        .foregroundColor(.orange)
+                    Text("Couldn't load recipe")
+                        .font(.headline)
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    Button("Try Again") {
+                        loadRecipe()
+                    }
                     .padding()
-                
-                Text("Our bakers are perfecting this recipe right now. Check back soon to start baking your own \(breadType)!")
-                    .multilineTextAlignment(.center)
+                    .background(Color.breadBrown)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+                }
+            } else if let recipe = recipe {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        // Header
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(recipe.name)
+                                    .font(.largeTitle.bold())
+                                    .foregroundColor(.breadBrown)
+
+                                Text(recipe.description)
+                                    .font(.subheadline)
+                                    .foregroundColor(.gray)
+                            }
+
+                            Spacer()
+
+                            Image("bread.ai logo no background")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 60)
+                        }
+                        .padding(.bottom)
+
+                        // AI Badge
+                        HStack {
+                            Image(systemName: "sparkles")
+                            Text("AI Generated Recipe")
+                        }
+                        .font(.caption)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.breadBrown.opacity(0.8))
+                        .cornerRadius(20)
+
+                        // Recipe Info
+                        HStack(spacing: 20) {
+                            RecipeInfoBadge(label: "Prep", value: recipe.prepTime)
+                            if recipe.fermentTime != "N/A" {
+                                RecipeInfoBadge(label: "Ferment", value: recipe.fermentTime)
+                            }
+                            RecipeInfoBadge(label: "Bake", value: recipe.bakeTime)
+                            RecipeInfoBadge(label: "Difficulty", value: recipe.difficulty)
+                        }
+                        .padding()
+                        .background(Color.white.opacity(0.9))
+                        .cornerRadius(10)
+                        .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+
+                        // Ingredients
+                        Text("Ingredients")
+                            .font(.title2.bold())
+                            .foregroundColor(.breadBrown)
+                            .padding(.top)
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(recipe.ingredients, id: \.item) { ingredient in
+                                IngredientRow(amount: ingredient.amount, ingredient: ingredient.item)
+                            }
+                        }
+
+                        // Instructions
+                        Text("Instructions")
+                            .font(.title2.bold())
+                            .foregroundColor(.breadBrown)
+                            .padding(.top)
+
+                        VStack(alignment: .leading, spacing: 15) {
+                            ForEach(Array(recipe.instructions.enumerated()), id: \.offset) { index, instruction in
+                                InstructionRow(step: index + 1, text: instruction)
+                            }
+                        }
+
+                        // Tips
+                        Text("Baker's Tips")
+                            .font(.title2.bold())
+                            .foregroundColor(.breadBrown)
+                            .padding(.top)
+
+                        Text(recipe.tips)
+                            .padding()
+                            .background(Color.white.opacity(0.9))
+                            .cornerRadius(8)
+                    }
                     .padding()
-                    .padding(.horizontal)
-                
-                Spacer()
+                }
             }
-            .padding(.top, 50)
         }
         .navigationTitle(breadType)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            loadRecipe()
+        }
+    }
+
+    private func loadRecipe() {
+        isLoading = true
+        errorMessage = nil
+
+        BreadService.shared.fetchRecipe(for: breadType) { result in
+            isLoading = false
+            switch result {
+            case .success(let fetchedRecipe):
+                recipe = fetchedRecipe
+            case .failure(let error):
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+}
+
+struct RecipeInfoBadge: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        VStack {
+            Text(label)
+                .font(.caption)
+                .foregroundColor(.gray)
+            Text(value)
+                .font(.headline)
+        }
     }
 }
 
@@ -241,7 +371,7 @@ struct InstructionRow: View {
     }
 }
 
-#Preview("Coming Soon") {
+#Preview("AI Recipe") {
     NavigationView {
         RecipeDetailView(bread: Bread(name: "Ciabatta"))
     }
