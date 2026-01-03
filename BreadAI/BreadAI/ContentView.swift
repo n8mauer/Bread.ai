@@ -4,25 +4,26 @@ struct ContentView: View {
     @State private var breadQuery: String
     @State private var response: String
     @State private var isLoading: Bool
-    
+    @ObservedObject private var gamification = GamificationManager.shared
+
     init(breadQuery: String = "", response: String = "", isLoading: Bool = false) {
         self._breadQuery = State(initialValue: breadQuery)
         self._response = State(initialValue: response)
         self._isLoading = State(initialValue: isLoading)
     }
-    
+
     var body: some View {
         ZStack {
             // Set background color for the entire view
             Color.breadBeige.ignoresSafeArea()
-            
+
             VStack {
                 Image("bread.ai logo no background")
                     .resizable()
                     .scaledToFit()
                     .frame(width: 100)
                     .padding()
-            
+
                 TextField("Ask about bread...", text: $breadQuery)
                     .padding()
                     .background(Color.white.opacity(0.9))
@@ -30,10 +31,11 @@ struct ContentView: View {
                     .shadow(color: Color.black.opacity(0.1), radius: 3, x: 0, y: 2)
                     .padding(.horizontal)
                     .disabled(isLoading)
-            
+
                 Button(action: {
                     if !breadQuery.isEmpty {
                         isLoading = true
+                        gamification.logQuestionAsked()
                         BreadService.shared.askAboutBread(query: breadQuery) { result in
                             response = result
                             isLoading = false
@@ -71,13 +73,20 @@ struct ContentView: View {
                 }
                 
                 Spacer()
-                
+
                 Text("Bread.ai - Your AI Bread Expert")
                     .font(.caption)
                     .foregroundColor(.gray)
                     .padding(.bottom, 10)
             }
             .padding()
+        }
+        .alert(isPresented: $gamification.showBadgeUnlockAlert) {
+            Alert(
+                title: Text("Badge Unlocked!"),
+                message: Text("You earned: \(gamification.recentlyUnlockedBadge?.name ?? "")"),
+                dismissButton: .default(Text("Awesome!"))
+            )
         }
     }
 }

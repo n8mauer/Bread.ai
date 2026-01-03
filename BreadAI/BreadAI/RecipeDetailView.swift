@@ -2,17 +2,27 @@ import SwiftUI
 
 struct RecipeDetailView: View {
     let bread: Bread
+    @ObservedObject private var gamification = GamificationManager.shared
 
     var body: some View {
         if bread.isSourdough {
             SourdoughRecipeView()
+                .onAppear {
+                    gamification.logRecipeViewed(breadType: bread.name)
+                }
         } else {
             AIRecipeView(breadType: bread.name)
+                .onAppear {
+                    gamification.logRecipeViewed(breadType: bread.name)
+                }
         }
     }
 }
 
 struct SourdoughRecipeView: View {
+    @ObservedObject private var gamification = GamificationManager.shared
+    @State private var showBakeLogged = false
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -143,18 +153,47 @@ struct SourdoughRecipeView: View {
                         .font(.title2.bold())
                         .foregroundColor(.breadBrown)
                         .padding(.top)
-                    
+
                     Text("For best results, use a kitchen scale to weigh ingredients precisely. The temperature of your kitchen affects fermentation times - in warm weather, reduce bulk fermentation and proofing times; in cold weather, extend them. A mature, active starter is crucial for proper rise and flavor development.")
                         .padding()
                         .background(Color.white.opacity(0.9))
                         .cornerRadius(8)
                 }
+
+                // Log Bake Button
+                Button(action: {
+                    gamification.logBake(breadType: "Sourdough")
+                    showBakeLogged = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        showBakeLogged = false
+                    }
+                }) {
+                    HStack {
+                        Image(systemName: showBakeLogged ? "checkmark.circle.fill" : "flame.fill")
+                        Text(showBakeLogged ? "Bake Logged!" : "I Made This!")
+                    }
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(showBakeLogged ? Color.green : Color.breadBrown)
+                    .cornerRadius(12)
+                }
+                .padding(.top, 20)
+                .disabled(showBakeLogged)
             }
             .padding()
         }
         .background(Color.breadBeige.ignoresSafeArea())
         .navigationTitle("Sourdough Recipe")
         .navigationBarTitleDisplayMode(.inline)
+        .alert(isPresented: $gamification.showBadgeUnlockAlert) {
+            Alert(
+                title: Text("Badge Unlocked!"),
+                message: Text("You earned: \(gamification.recentlyUnlockedBadge?.name ?? "")"),
+                dismissButton: .default(Text("Awesome!"))
+            )
+        }
     }
 }
 
@@ -163,6 +202,8 @@ struct AIRecipeView: View {
     @State private var recipe: AIRecipe?
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var showBakeLogged = false
+    @ObservedObject private var gamification = GamificationManager.shared
 
     var body: some View {
         ZStack {
@@ -281,6 +322,28 @@ struct AIRecipeView: View {
                             .padding()
                             .background(Color.white.opacity(0.9))
                             .cornerRadius(8)
+
+                        // Log Bake Button
+                        Button(action: {
+                            gamification.logBake(breadType: breadType)
+                            showBakeLogged = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                showBakeLogged = false
+                            }
+                        }) {
+                            HStack {
+                                Image(systemName: showBakeLogged ? "checkmark.circle.fill" : "flame.fill")
+                                Text(showBakeLogged ? "Bake Logged!" : "I Made This!")
+                            }
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(showBakeLogged ? Color.green : Color.breadBrown)
+                            .cornerRadius(12)
+                        }
+                        .padding(.top, 20)
+                        .disabled(showBakeLogged)
                     }
                     .padding()
                 }
@@ -290,6 +353,13 @@ struct AIRecipeView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             loadRecipe()
+        }
+        .alert(isPresented: $gamification.showBadgeUnlockAlert) {
+            Alert(
+                title: Text("Badge Unlocked!"),
+                message: Text("You earned: \(gamification.recentlyUnlockedBadge?.name ?? "")"),
+                dismissButton: .default(Text("Awesome!"))
+            )
         }
     }
 
