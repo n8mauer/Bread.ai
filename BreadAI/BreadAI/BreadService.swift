@@ -1,6 +1,21 @@
 import Foundation
 
-// MARK: - Recipe Model
+// MARK: - Response Models
+
+/// Response from /ask endpoint with feedback tracking info
+struct AskAIResponse: Codable {
+    let response: String
+    let responseId: String
+    let promptVariant: String
+
+    enum CodingKeys: String, CodingKey {
+        case response
+        case responseId = "response_id"
+        case promptVariant = "prompt_variant"
+    }
+}
+
+/// Recipe response with feedback tracking info
 struct AIRecipe: Codable {
     let name: String
     let description: String
@@ -11,6 +26,8 @@ struct AIRecipe: Codable {
     let ingredients: [Ingredient]
     let instructions: [String]
     let tips: String
+    let responseId: String
+    let promptVariant: String
 
     struct Ingredient: Codable {
         let amount: String
@@ -22,8 +39,38 @@ struct AIRecipe: Codable {
         case prepTime = "prep_time"
         case fermentTime = "ferment_time"
         case bakeTime = "bake_time"
+        case responseId = "response_id"
+        case promptVariant = "prompt_variant"
     }
 }
+
+/// Feedback rating types
+enum FeedbackRating: String {
+    case positive
+    case negative
+    case neutral
+}
+
+/// Feedback request model
+struct FeedbackRequest: Codable {
+    let responseId: String
+    let query: String
+    let response: String
+    let rating: String
+    let promptVariant: String
+    let responseType: String
+    let comment: String?
+
+    enum CodingKeys: String, CodingKey {
+        case query, response, rating, comment
+        case responseId = "response_id"
+        case promptVariant = "prompt_variant"
+        case responseType = "response_type"
+    }
+}
+
+
+// MARK: - Bread Service
 
 class BreadService {
     static let shared = BreadService()
@@ -36,9 +83,11 @@ class BreadService {
 
     private init() {}
 
-    func askAboutBread(query: String, completion: @escaping (String) -> Void) {
+    // MARK: - Ask About Bread (with feedback tracking)
+
+    func askAboutBread(query: String, completion: @escaping (AskAIResponse?) -> Void) {
         guard let url = URL(string: "\(baseURL)/ask") else {
-            completion(fallbackResponse(for: query))
+            completion(nil)
             return
         }
 
@@ -52,46 +101,49 @@ class BreadService {
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } catch {
-            completion(fallbackResponse(for: query))
+            completion(nil)
             return
         }
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
-                // Handle network error
                 if let error = error {
                     print("Network error: \(error.localizedDescription)")
-                    completion(self?.fallbackResponse(for: query) ?? "Sorry, I couldn't process that request.")
+                    completion(nil)
                     return
                 }
 
-                // Check for valid response
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    completion(self?.fallbackResponse(for: query) ?? "Sorry, I couldn't process that request.")
+                guard let httpResponse = response as? HTTPURLResponse,
+                      (200...299).contains(httpResponse.statusCode),
+                      let data = data else {
+                    completion(nil)
                     return
                 }
 
-                // Handle HTTP errors
-                guard (200...299).contains(httpResponse.statusCode) else {
-                    print("HTTP error: \(httpResponse.statusCode)")
-                    completion(self?.fallbackResponse(for: query) ?? "Sorry, I couldn't process that request.")
-                    return
+                do {
+                    let aiResponse = try JSONDecoder().decode(AskAIResponse.self, from: data)
+                    completion(aiResponse)
+                } catch {
+                    print("Decode error: \(error)")
+                    completion(nil)
                 }
-
-                // Parse response
-                guard let data = data,
-                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let responseText = json["response"] as? String else {
-                    completion(self?.fallbackResponse(for: query) ?? "Sorry, I couldn't process that request.")
-                    return
-                }
-
-                completion(responseText)
             }
         }.resume()
     }
 
+    // Legacy method for backwards compatibility
+    func askAboutBreadLegacy(query: String, completion: @escaping (String) -> Void) {
+        askAboutBread(query: query) { [weak self] response in
+            if let response = response {
+                completion(response.response)
+            } else {
+                completion(self?.fallbackResponse(for: query) ?? "Sorry, I couldn't process that request.")
+            }
+        }
+    }
+
     // MARK: - Recipe Generation
+
     func fetchRecipe(for breadName: String, completion: @escaping (Result<AIRecipe, Error>) -> Void) {
         guard let url = URL(string: "\(baseURL)/recipe") else {
             completion(.failure(BreadServiceError.invalidURL))
@@ -101,7 +153,7 @@ class BreadService {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 60 // Recipes take longer to generate
+        request.timeoutInterval = 60
 
         let body = ["bread_name": breadName]
 
@@ -134,11 +186,72 @@ class BreadService {
                     let recipe = try JSONDecoder().decode(AIRecipe.self, from: data)
                     completion(.success(recipe))
                 } catch {
+                    print("Recipe decode error: \(error)")
                     completion(.failure(error))
                 }
             }
         }.resume()
     }
+
+    // MARK: - Feedback Submission
+
+    func submitFeedback(
+        responseId: String,
+        query: String,
+        response: String,
+        rating: FeedbackRating,
+        promptVariant: String,
+        responseType: String,
+        comment: String? = nil,
+        completion: @escaping (Bool) -> Void
+    ) {
+        guard let url = URL(string: "\(baseURL)/feedback") else {
+            completion(false)
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 10
+
+        let feedbackRequest = FeedbackRequest(
+            responseId: responseId,
+            query: query,
+            response: response,
+            rating: rating.rawValue,
+            promptVariant: promptVariant,
+            responseType: responseType,
+            comment: comment
+        )
+
+        do {
+            request.httpBody = try JSONEncoder().encode(feedbackRequest)
+        } catch {
+            completion(false)
+            return
+        }
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    print("Feedback error: \(error.localizedDescription)")
+                    completion(false)
+                    return
+                }
+
+                guard let httpResponse = response as? HTTPURLResponse,
+                      (200...299).contains(httpResponse.statusCode) else {
+                    completion(false)
+                    return
+                }
+
+                completion(true)
+            }
+        }.resume()
+    }
+
+    // MARK: - Errors
 
     enum BreadServiceError: Error, LocalizedError {
         case invalidURL
@@ -155,6 +268,7 @@ class BreadService {
     }
 
     // MARK: - Fallback responses for offline mode
+
     private func fallbackResponse(for query: String) -> String {
         let lowercaseQuery = query.lowercased()
 
