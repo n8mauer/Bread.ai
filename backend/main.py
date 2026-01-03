@@ -2,6 +2,7 @@ import os
 import json
 import random
 import sqlite3
+import hashlib
 from datetime import datetime, timedelta
 from contextlib import contextmanager
 from fastapi import FastAPI, HTTPException
@@ -13,6 +14,15 @@ from dotenv import load_dotenv
 import re
 
 load_dotenv()
+
+# =============================================================================
+# CACHE CONFIGURATION
+# =============================================================================
+
+# Cache TTL (time-to-live) in seconds
+CACHE_TTL_ASK = int(os.getenv("CACHE_TTL_ASK", 3600))  # 1 hour for Q&A
+CACHE_TTL_RECIPE = int(os.getenv("CACHE_TTL_RECIPE", 86400))  # 24 hours for recipes
+CACHE_ENABLED = os.getenv("CACHE_ENABLED", "true").lower() == "true"
 
 
 # =============================================================================
@@ -27,14 +37,15 @@ MAX_BREAD_NAME_LENGTH = 100
 INJECTION_PATTERNS = [
     # Instruction override attempts
     r"(?i)(ignore|disregard|forget|override|bypass)\s+(all\s+)?(previous|above|prior|earlier|system)\s+(instructions?|prompts?|rules?|guidelines?)",
+    r"(?i)(ignore|disregard|forget|override|bypass)\s+(your\s+)?(system\s+)?(instructions?|prompts?|rules?|guidelines?)",
     r"(?i)(new\s+)?instructions?:\s*",
     r"(?i)you\s+are\s+now\s+(a|an)\s+",
-    r"(?i)act\s+as\s+(a|an)?\s*(?!bread|baker|baking)",  # Allow "act as a baker"
     r"(?i)pretend\s+(you\s+are|to\s+be)\s+",
     r"(?i)roleplay\s+as\s+",
     r"(?i)switch\s+(to\s+)?(a\s+)?different\s+(mode|persona|role)",
     # System prompt extraction attempts
-    r"(?i)(show|reveal|display|print|output|tell\s+me)\s+(your\s+)?(system\s+)?(prompt|instructions?|rules?|guidelines?)",
+    r"(?i)(show|reveal|display|print|output)\s+(me\s+)?(your\s+)?(system\s+)?(prompt|instructions?|rules?|guidelines?)",
+    r"(?i)tell\s+me\s+(your\s+)?(system\s+)?(prompt|instructions?|rules?|guidelines?)",
     r"(?i)what\s+(are\s+)?(your|the)\s+(system\s+)?(instructions?|prompt|rules?)",
     r"(?i)(repeat|echo)\s+(back\s+)?(your\s+)?(system\s+)?(prompt|instructions?)",
     # Delimiter/formatting exploits
@@ -165,6 +176,29 @@ def init_db():
             )
         ''')
 
+        # Response cache table for reducing API costs
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS response_cache (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cache_key TEXT UNIQUE NOT NULL,
+                cache_type TEXT NOT NULL,
+                query TEXT NOT NULL,
+                response_data TEXT NOT NULL,
+                prompt_variant TEXT,
+                hit_count INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL
+            )
+        ''')
+
+        # Create index for faster cache lookups
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_cache_key ON response_cache(cache_key)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_cache_expires ON response_cache(expires_at)
+        ''')
+
         conn.commit()
 
         # Insert default prompt variants if none exist
@@ -191,6 +225,154 @@ def get_db():
         yield conn
     finally:
         conn.close()
+
+
+# =============================================================================
+# CACHING FUNCTIONS
+# =============================================================================
+
+def generate_cache_key(query: str, cache_type: str) -> str:
+    """Generate a unique cache key for a query."""
+    normalized = ' '.join(query.lower().strip().split())
+    key_string = f"{cache_type}:{normalized}"
+    return hashlib.sha256(key_string.encode()).hexdigest()[:32]
+
+
+def get_cached_response(cache_key: str) -> Optional[dict]:
+    """Retrieve a cached response if it exists and hasn't expired."""
+    if not CACHE_ENABLED:
+        return None
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT response_data, prompt_variant, hit_count
+            FROM response_cache
+            WHERE cache_key = ? AND expires_at > datetime('now')
+        ''', (cache_key,))
+        row = cursor.fetchone()
+
+        if row:
+            cursor.execute('''
+                UPDATE response_cache SET hit_count = hit_count + 1
+                WHERE cache_key = ?
+            ''', (cache_key,))
+            conn.commit()
+
+            return {
+                "response_data": json.loads(row["response_data"]),
+                "prompt_variant": row["prompt_variant"],
+                "hit_count": row["hit_count"] + 1,
+                "cached": True
+            }
+
+    return None
+
+
+def cache_response(
+    cache_key: str,
+    cache_type: str,
+    query: str,
+    response_data: dict,
+    prompt_variant: str,
+    ttl_seconds: int
+) -> bool:
+    """Store a response in the cache."""
+    if not CACHE_ENABLED:
+        return False
+
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            expires_at = datetime.now() + timedelta(seconds=ttl_seconds)
+
+            cursor.execute('''
+                INSERT OR REPLACE INTO response_cache
+                (cache_key, cache_type, query, response_data, prompt_variant, hit_count, expires_at)
+                VALUES (?, ?, ?, ?, ?, 0, ?)
+            ''', (
+                cache_key,
+                cache_type,
+                query,
+                json.dumps(response_data),
+                prompt_variant,
+                expires_at.isoformat()
+            ))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"Cache write error: {e}")
+        return False
+
+
+def cleanup_expired_cache() -> int:
+    """Remove expired cache entries."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM response_cache WHERE expires_at < datetime('now')")
+        deleted = cursor.rowcount
+        conn.commit()
+        return deleted
+
+
+def clear_all_cache() -> int:
+    """Clear all cache entries."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM response_cache")
+        deleted = cursor.rowcount
+        conn.commit()
+        return deleted
+
+
+def get_cache_stats() -> dict:
+    """Get cache statistics."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT COUNT(*) FROM response_cache")
+        total_entries = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM response_cache WHERE expires_at > datetime('now')")
+        active_entries = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COALESCE(SUM(hit_count), 0) FROM response_cache")
+        total_hits = cursor.fetchone()[0]
+
+        cursor.execute('''
+            SELECT cache_type, COUNT(*) as count, COALESCE(SUM(hit_count), 0) as hits
+            FROM response_cache
+            WHERE expires_at > datetime('now')
+            GROUP BY cache_type
+        ''')
+        by_type = {row["cache_type"]: {"count": row["count"], "hits": row["hits"]}
+                   for row in cursor.fetchall()}
+
+        cursor.execute('''
+            SELECT query, hit_count, cache_type
+            FROM response_cache
+            WHERE expires_at > datetime('now')
+            ORDER BY hit_count DESC
+            LIMIT 10
+        ''')
+        top_queries = [{"query": row["query"][:50], "hits": row["hit_count"], "type": row["cache_type"]}
+                       for row in cursor.fetchall()]
+
+        # Estimated savings: ~$0.0003 per Haiku request
+        estimated_savings = round(total_hits * 0.0003, 4)
+
+        return {
+            "enabled": CACHE_ENABLED,
+            "total_entries": total_entries,
+            "active_entries": active_entries,
+            "expired_entries": total_entries - active_entries,
+            "total_cache_hits": total_hits,
+            "by_type": by_type,
+            "top_cached_queries": top_queries,
+            "estimated_savings_usd": estimated_savings,
+            "ttl_ask_seconds": CACHE_TTL_ASK,
+            "ttl_recipe_seconds": CACHE_TTL_RECIPE
+        }
 
 
 # =============================================================================
@@ -248,6 +430,7 @@ class AskResponse(BaseModel):
     response: str
     response_id: str  # For feedback tracking
     prompt_variant: str  # Which A/B variant was used
+    cached: bool = False  # Whether response was served from cache
 
 
 class FeedbackRequest(BaseModel):
@@ -281,6 +464,7 @@ class RecipeResponse(BaseModel):
     tips: str
     response_id: str
     prompt_variant: str
+    cached: bool = False
 
 
 class AnalyticsResponse(BaseModel):
@@ -314,7 +498,7 @@ async def health():
 
 @app.post("/ask", response_model=AskResponse)
 async def ask_about_bread(request: AskRequest):
-    """Answer bread questions with A/B tested prompts."""
+    """Answer bread questions with A/B tested prompts and caching."""
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
 
@@ -324,6 +508,19 @@ async def ask_about_bread(request: AskRequest):
         max_length=MAX_QUERY_LENGTH,
         field_name="query"
     )
+
+    # Check cache first
+    cache_key = generate_cache_key(sanitized_query, "ask")
+    cached = get_cached_response(cache_key)
+
+    if cached:
+        response_id = f"ask_cached_{datetime.now().strftime('%Y%m%d%H%M%S')}_{random.randint(1000, 9999)}"
+        return AskResponse(
+            response=cached["response_data"]["response"],
+            response_id=response_id,
+            prompt_variant=cached["prompt_variant"],
+            cached=True
+        )
 
     # Get A/B test variant
     variant_name, system_prompt = get_active_prompt_variant()
@@ -342,10 +539,22 @@ async def ask_about_bread(request: AskRequest):
         )
 
         response_text = message.content[0].text
+
+        # Cache the response
+        cache_response(
+            cache_key=cache_key,
+            cache_type="ask",
+            query=sanitized_query,
+            response_data={"response": response_text},
+            prompt_variant=variant_name,
+            ttl_seconds=CACHE_TTL_ASK
+        )
+
         return AskResponse(
             response=response_text,
             response_id=response_id,
-            prompt_variant=variant_name
+            prompt_variant=variant_name,
+            cached=False
         )
 
     except anthropic.APIConnectionError:
@@ -554,7 +763,7 @@ Be accurate with traditional recipes. Include 6-10 ingredients and 6-10 clear st
 
 @app.post("/recipe", response_model=RecipeResponse)
 async def generate_recipe(request: RecipeRequest):
-    """Generate a bread recipe with feedback tracking."""
+    """Generate a bread recipe with caching and feedback tracking."""
     if not request.bread_name.strip():
         raise HTTPException(status_code=400, detail="Bread name cannot be empty")
 
@@ -564,6 +773,28 @@ async def generate_recipe(request: RecipeRequest):
         max_length=MAX_BREAD_NAME_LENGTH,
         field_name="bread_name"
     )
+
+    # Check cache first
+    cache_key = generate_cache_key(sanitized_bread_name, "recipe")
+    cached = get_cached_response(cache_key)
+
+    if cached:
+        recipe_data = cached["response_data"]
+        response_id = f"recipe_cached_{datetime.now().strftime('%Y%m%d%H%M%S')}_{random.randint(1000, 9999)}"
+        return RecipeResponse(
+            name=recipe_data.get("name", sanitized_bread_name),
+            description=recipe_data.get("description", "A delicious homemade bread"),
+            prep_time=recipe_data.get("prep_time", "30 min"),
+            ferment_time=recipe_data.get("ferment_time", "N/A"),
+            bake_time=recipe_data.get("bake_time", "45 min"),
+            difficulty=recipe_data.get("difficulty", "Medium"),
+            ingredients=recipe_data.get("ingredients", []),
+            instructions=recipe_data.get("instructions", []),
+            tips=recipe_data.get("tips", "Enjoy your fresh bread!"),
+            response_id=response_id,
+            prompt_variant=cached["prompt_variant"],
+            cached=True
+        )
 
     response_id = f"recipe_{datetime.now().strftime('%Y%m%d%H%M%S')}_{random.randint(1000, 9999)}"
     variant_name = "recipe_default"
@@ -580,7 +811,6 @@ async def generate_recipe(request: RecipeRequest):
         response_text = message.content[0].text.strip()
 
         # Parse JSON response
-        import re
         try:
             recipe_data = json.loads(response_text)
         except json.JSONDecodeError:
@@ -590,8 +820,18 @@ async def generate_recipe(request: RecipeRequest):
             else:
                 raise HTTPException(status_code=500, detail="Failed to parse recipe")
 
+        # Cache the recipe
+        cache_response(
+            cache_key=cache_key,
+            cache_type="recipe",
+            query=sanitized_bread_name,
+            response_data=recipe_data,
+            prompt_variant=variant_name,
+            ttl_seconds=CACHE_TTL_RECIPE
+        )
+
         return RecipeResponse(
-            name=recipe_data.get("name", request.bread_name),
+            name=recipe_data.get("name", sanitized_bread_name),
             description=recipe_data.get("description", "A delicious homemade bread"),
             prep_time=recipe_data.get("prep_time", "30 min"),
             ferment_time=recipe_data.get("ferment_time", "N/A"),
@@ -601,7 +841,8 @@ async def generate_recipe(request: RecipeRequest):
             instructions=recipe_data.get("instructions", []),
             tips=recipe_data.get("tips", "Enjoy your fresh bread!"),
             response_id=response_id,
-            prompt_variant=variant_name
+            prompt_variant=variant_name,
+            cached=False
         )
 
     except anthropic.APIConnectionError:
@@ -610,6 +851,30 @@ async def generate_recipe(request: RecipeRequest):
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
     except anthropic.APIStatusError as e:
         raise HTTPException(status_code=500, detail=f"AI service error: {str(e)}")
+
+
+# =============================================================================
+# CACHE MANAGEMENT ENDPOINTS
+# =============================================================================
+
+@app.get("/cache/stats")
+async def cache_statistics():
+    """Get cache statistics and performance metrics."""
+    return get_cache_stats()
+
+
+@app.post("/cache/cleanup")
+async def cache_cleanup():
+    """Remove expired cache entries."""
+    deleted = cleanup_expired_cache()
+    return {"success": True, "deleted_entries": deleted}
+
+
+@app.post("/cache/clear")
+async def cache_clear():
+    """Clear all cache entries (use with caution)."""
+    deleted = clear_all_cache()
+    return {"success": True, "deleted_entries": deleted}
 
 
 if __name__ == "__main__":
