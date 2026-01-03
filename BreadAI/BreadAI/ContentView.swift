@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var currentPromptVariant: String = ""
     @State private var feedbackSubmitted: FeedbackRating?
     @State private var showFeedbackThanks: Bool = false
+    @State private var isCached: Bool = false
     @ObservedObject private var gamification = GamificationManager.shared
 
     init(breadQuery: String = "", response: String = "", isLoading: Bool = false) {
@@ -34,6 +35,9 @@ struct ContentView: View {
                     .shadow(color: Color.black.opacity(0.1), radius: 3, x: 0, y: 2)
                     .padding(.horizontal)
                     .disabled(isLoading)
+                    .onSubmit {
+                        askQuestion()
+                    }
 
                 Button(action: askQuestion) {
                     HStack {
@@ -57,12 +61,25 @@ struct ContentView: View {
                 if !response.isEmpty {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text(response)
-                                .padding()
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color.white.opacity(0.9))
-                                .cornerRadius(8)
-                                .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+                            // Response with cache indicator
+                            VStack(alignment: .leading, spacing: 8) {
+                                if isCached {
+                                    HStack {
+                                        Image(systemName: "bolt.fill")
+                                            .foregroundColor(.orange)
+                                        Text("Cached response")
+                                            .font(.caption)
+                                            .foregroundColor(.orange)
+                                    }
+                                }
+
+                                Text(response)
+                            }
+                            .padding()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.white.opacity(0.9))
+                            .cornerRadius(8)
+                            .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
 
                             // Feedback buttons
                             if !currentResponseId.isEmpty {
@@ -98,46 +115,63 @@ struct ContentView: View {
     }
 
     private func askQuestion() {
-        guard !breadQuery.isEmpty else { return }
+        guard !breadQuery.isEmpty, !isLoading else { return }
 
         isLoading = true
         feedbackSubmitted = nil
         showFeedbackThanks = false
+        isCached = false
         gamification.logQuestionAsked()
 
         let query = breadQuery
 
-        BreadService.shared.askAboutBread(query: query) { aiResponse in
-            isLoading = false
+        Task {
+            let result = await BreadService.shared.askAboutBreadWithFallback(query: query)
 
-            if let aiResponse = aiResponse {
-                response = aiResponse.response
-                currentResponseId = aiResponse.responseId
-                currentPromptVariant = aiResponse.promptVariant
-            } else {
-                response = "Sorry, I couldn't process that request. Please try again."
-                currentResponseId = ""
-                currentPromptVariant = ""
+            await MainActor.run {
+                response = result.response
+                if let metadata = result.metadata {
+                    currentResponseId = metadata.responseId
+                    currentPromptVariant = metadata.promptVariant
+                    isCached = metadata.cached ?? false
+                } else {
+                    currentResponseId = ""
+                    currentPromptVariant = ""
+                    isCached = false
+                }
+                isLoading = false
             }
         }
     }
 
     private func submitFeedback(rating: FeedbackRating) {
-        BreadService.shared.submitFeedback(
-            responseId: currentResponseId,
-            query: breadQuery,
-            response: response,
-            rating: rating,
-            promptVariant: currentPromptVariant,
-            responseType: "ask",
-            comment: nil
-        ) { success in
-            if success {
-                feedbackSubmitted = rating
-                showFeedbackThanks = true
+        let query = breadQuery
+        let responseText = response
+        let responseId = currentResponseId
+        let promptVariant = currentPromptVariant
 
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                    showFeedbackThanks = false
+        Task {
+            let success = await BreadService.shared.submitFeedbackSilently(
+                responseId: responseId,
+                query: query,
+                response: responseText,
+                rating: rating,
+                promptVariant: promptVariant,
+                responseType: "ask",
+                comment: nil
+            )
+
+            await MainActor.run {
+                if success {
+                    feedbackSubmitted = rating
+                    showFeedbackThanks = true
+
+                    Task {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        await MainActor.run {
+                            showFeedbackThanks = false
+                        }
+                    }
                 }
             }
         }
@@ -229,12 +263,11 @@ struct ContentView_Previews: PreviewProvider {
 }
 
 struct ContentView_WithResponse: View {
-    @State private var breadQuery: String = "What is sourdough?"
-    @State private var response: String = "Sourdough bread is made by fermenting dough using naturally occurring wild yeast and lactic acid bacteria. This gives it a slightly sour taste and improved keeping qualities."
-    @State private var isLoading: Bool = false
-
     var body: some View {
-        ContentView(breadQuery: breadQuery, response: response, isLoading: isLoading)
+        ContentView(
+            breadQuery: "What is sourdough?",
+            response: "Sourdough bread is made by fermenting dough using naturally occurring wild yeast and lactic acid bacteria."
+        )
     }
 }
 #endif

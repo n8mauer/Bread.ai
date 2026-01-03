@@ -164,8 +164,11 @@ struct SourdoughRecipeView: View {
                 Button(action: {
                     gamification.logBake(breadType: "Sourdough")
                     showBakeLogged = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                        showBakeLogged = false
+                    Task {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        await MainActor.run {
+                            showBakeLogged = false
+                        }
                     }
                 }) {
                     HStack {
@@ -327,8 +330,11 @@ struct AIRecipeView: View {
                         Button(action: {
                             gamification.logBake(breadType: breadType)
                             showBakeLogged = true
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                showBakeLogged = false
+                            Task {
+                                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                await MainActor.run {
+                                    showBakeLogged = false
+                                }
                             }
                         }) {
                             HStack {
@@ -367,13 +373,18 @@ struct AIRecipeView: View {
         isLoading = true
         errorMessage = nil
 
-        BreadService.shared.fetchRecipe(for: breadType) { result in
-            isLoading = false
-            switch result {
-            case .success(let fetchedRecipe):
-                recipe = fetchedRecipe
-            case .failure(let error):
-                errorMessage = error.localizedDescription
+        Task {
+            do {
+                let fetchedRecipe = try await BreadService.shared.fetchRecipe(for: breadType)
+                await MainActor.run {
+                    recipe = fetchedRecipe
+                    isLoading = false
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    isLoading = false
+                }
             }
         }
     }

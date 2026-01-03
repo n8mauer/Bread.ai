@@ -3,20 +3,21 @@ import Foundation
 // MARK: - Response Models
 
 /// Response from /ask endpoint with feedback tracking info
-struct AskAIResponse: Codable {
+struct AskAIResponse: Codable, Sendable {
     let response: String
     let responseId: String
     let promptVariant: String
+    let cached: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case response
+        case response, cached
         case responseId = "response_id"
         case promptVariant = "prompt_variant"
     }
 }
 
 /// Recipe response with feedback tracking info
-struct AIRecipe: Codable {
+struct AIRecipe: Codable, Sendable {
     let name: String
     let description: String
     let prepTime: String
@@ -28,14 +29,15 @@ struct AIRecipe: Codable {
     let tips: String
     let responseId: String
     let promptVariant: String
+    let cached: Bool?
 
-    struct Ingredient: Codable {
+    struct Ingredient: Codable, Sendable {
         let amount: String
         let item: String
     }
 
     enum CodingKeys: String, CodingKey {
-        case name, description, difficulty, ingredients, instructions, tips
+        case name, description, difficulty, ingredients, instructions, tips, cached
         case prepTime = "prep_time"
         case fermentTime = "ferment_time"
         case bakeTime = "bake_time"
@@ -45,14 +47,14 @@ struct AIRecipe: Codable {
 }
 
 /// Feedback rating types
-enum FeedbackRating: String {
+enum FeedbackRating: String, Sendable {
     case positive
     case negative
     case neutral
 }
 
 /// Feedback request model
-struct FeedbackRequest: Codable {
+struct FeedbackRequest: Codable, Sendable {
     let responseId: String
     let query: String
     let response: String
@@ -69,132 +71,101 @@ struct FeedbackRequest: Codable {
     }
 }
 
+/// Feedback response from server
+struct FeedbackResponse: Codable, Sendable {
+    let success: Bool
+    let message: String
+}
+
 
 // MARK: - Bread Service
 
-class BreadService {
+/// Modern async/await-based service for BreadAI API
+actor BreadService {
     static let shared = BreadService()
 
     // MARK: - Configuration
-    // Change this URL to your deployed backend URL
-    // For local development: "http://localhost:8000"
-    // For production: "https://breadai-api.onrender.com" (or your Render URL)
     private let baseURL = "http://localhost:8000"
+    private let session: URLSession
 
-    private init() {}
+    private init() {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 60
+        self.session = URLSession(configuration: config)
+    }
 
-    // MARK: - Ask About Bread (with feedback tracking)
+    // MARK: - Ask About Bread
 
-    func askAboutBread(query: String, completion: @escaping (AskAIResponse?) -> Void) {
-        guard let url = URL(string: "\(baseURL)/ask") else {
-            completion(nil)
-            return
-        }
-
+    /// Ask a question about bread using async/await
+    /// - Parameter query: The question to ask
+    /// - Returns: The AI response with metadata
+    /// - Throws: BreadServiceError if the request fails
+    func askAboutBread(query: String) async throws -> AskAIResponse {
+        let url = try buildURL(endpoint: "/ask")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 30
 
         let body = ["query": query]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        } catch {
-            completion(nil)
-            return
-        }
+        let (data, response) = try await session.data(for: request)
 
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            DispatchQueue.main.async {
-                if let error = error {
-                    print("Network error: \(error.localizedDescription)")
-                    completion(nil)
-                    return
-                }
+        try validateResponse(response)
 
-                guard let httpResponse = response as? HTTPURLResponse,
-                      (200...299).contains(httpResponse.statusCode),
-                      let data = data else {
-                    completion(nil)
-                    return
-                }
-
-                do {
-                    let aiResponse = try JSONDecoder().decode(AskAIResponse.self, from: data)
-                    completion(aiResponse)
-                } catch {
-                    print("Decode error: \(error)")
-                    completion(nil)
-                }
-            }
-        }.resume()
+        return try JSONDecoder().decode(AskAIResponse.self, from: data)
     }
 
-    // Legacy method for backwards compatibility
-    func askAboutBreadLegacy(query: String, completion: @escaping (String) -> Void) {
-        askAboutBread(query: query) { [weak self] response in
-            if let response = response {
-                completion(response.response)
-            } else {
-                completion(self?.fallbackResponse(for: query) ?? "Sorry, I couldn't process that request.")
-            }
+    /// Ask about bread with fallback for offline mode
+    /// - Parameter query: The question to ask
+    /// - Returns: The response text (either from API or fallback)
+    func askAboutBreadWithFallback(query: String) async -> (response: String, metadata: AskAIResponse?) {
+        do {
+            let result = try await askAboutBread(query: query)
+            return (result.response, result)
+        } catch {
+            print("API Error: \(error.localizedDescription)")
+            return (fallbackResponse(for: query), nil)
         }
     }
 
     // MARK: - Recipe Generation
 
-    func fetchRecipe(for breadName: String, completion: @escaping (Result<AIRecipe, Error>) -> Void) {
-        guard let url = URL(string: "\(baseURL)/recipe") else {
-            completion(.failure(BreadServiceError.invalidURL))
-            return
-        }
-
+    /// Fetch a recipe for a specific bread type
+    /// - Parameter breadName: The name of the bread
+    /// - Returns: The generated recipe
+    /// - Throws: BreadServiceError if the request fails
+    func fetchRecipe(for breadName: String) async throws -> AIRecipe {
+        let url = try buildURL(endpoint: "/recipe")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 60
+        request.timeoutInterval = 60 // Recipes take longer
 
         let body = ["bread_name": breadName]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        } catch {
-            completion(.failure(error))
-            return
-        }
+        let (data, response) = try await session.data(for: request)
 
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            DispatchQueue.main.async {
-                if let error = error {
-                    completion(.failure(error))
-                    return
-                }
+        try validateResponse(response)
 
-                guard let httpResponse = response as? HTTPURLResponse,
-                      (200...299).contains(httpResponse.statusCode) else {
-                    completion(.failure(BreadServiceError.serverError))
-                    return
-                }
-
-                guard let data = data else {
-                    completion(.failure(BreadServiceError.noData))
-                    return
-                }
-
-                do {
-                    let recipe = try JSONDecoder().decode(AIRecipe.self, from: data)
-                    completion(.success(recipe))
-                } catch {
-                    print("Recipe decode error: \(error)")
-                    completion(.failure(error))
-                }
-            }
-        }.resume()
+        return try JSONDecoder().decode(AIRecipe.self, from: data)
     }
 
     // MARK: - Feedback Submission
 
+    /// Submit feedback for a response
+    /// - Parameters:
+    ///   - responseId: The ID of the response being rated
+    ///   - query: The original query
+    ///   - response: The response text
+    ///   - rating: The user's rating
+    ///   - promptVariant: The prompt variant used
+    ///   - responseType: Type of response (ask/recipe)
+    ///   - comment: Optional user comment
+    /// - Returns: Whether the feedback was submitted successfully
+    @discardableResult
     func submitFeedback(
         responseId: String,
         query: String,
@@ -202,14 +173,9 @@ class BreadService {
         rating: FeedbackRating,
         promptVariant: String,
         responseType: String,
-        comment: String? = nil,
-        completion: @escaping (Bool) -> Void
-    ) {
-        guard let url = URL(string: "\(baseURL)/feedback") else {
-            completion(false)
-            return
-        }
-
+        comment: String? = nil
+    ) async throws -> Bool {
+        let url = try buildURL(endpoint: "/feedback")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -225,49 +191,112 @@ class BreadService {
             comment: comment
         )
 
+        request.httpBody = try JSONEncoder().encode(feedbackRequest)
+
+        let (data, httpResponse) = try await session.data(for: request)
+
+        try validateResponse(httpResponse)
+
+        let result = try JSONDecoder().decode(FeedbackResponse.self, from: data)
+        return result.success
+    }
+
+    /// Submit feedback without throwing (fire-and-forget style)
+    func submitFeedbackSilently(
+        responseId: String,
+        query: String,
+        response: String,
+        rating: FeedbackRating,
+        promptVariant: String,
+        responseType: String,
+        comment: String? = nil
+    ) async -> Bool {
         do {
-            request.httpBody = try JSONEncoder().encode(feedbackRequest)
+            return try await submitFeedback(
+                responseId: responseId,
+                query: query,
+                response: response,
+                rating: rating,
+                promptVariant: promptVariant,
+                responseType: responseType,
+                comment: comment
+            )
         } catch {
-            completion(false)
-            return
+            print("Feedback submission failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    // MARK: - Helper Methods
+
+    private func buildURL(endpoint: String) throws -> URL {
+        guard let url = URL(string: "\(baseURL)\(endpoint)") else {
+            throw BreadServiceError.invalidURL
+        }
+        return url
+    }
+
+    private func validateResponse(_ response: URLResponse) throws {
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw BreadServiceError.invalidResponse
         }
 
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            DispatchQueue.main.async {
-                if let error = error {
-                    print("Feedback error: \(error.localizedDescription)")
-                    completion(false)
-                    return
-                }
-
-                guard let httpResponse = response as? HTTPURLResponse,
-                      (200...299).contains(httpResponse.statusCode) else {
-                    completion(false)
-                    return
-                }
-
-                completion(true)
-            }
-        }.resume()
+        switch httpResponse.statusCode {
+        case 200...299:
+            return
+        case 400:
+            throw BreadServiceError.badRequest
+        case 401, 403:
+            throw BreadServiceError.unauthorized
+        case 404:
+            throw BreadServiceError.notFound
+        case 429:
+            throw BreadServiceError.rateLimited
+        case 500...599:
+            throw BreadServiceError.serverError
+        default:
+            throw BreadServiceError.unknownError(statusCode: httpResponse.statusCode)
+        }
     }
 
     // MARK: - Errors
 
     enum BreadServiceError: Error, LocalizedError {
         case invalidURL
+        case invalidResponse
+        case badRequest
+        case unauthorized
+        case notFound
+        case rateLimited
         case serverError
         case noData
+        case unknownError(statusCode: Int)
 
         var errorDescription: String? {
             switch self {
-            case .invalidURL: return "Invalid server URL"
-            case .serverError: return "Server error occurred"
-            case .noData: return "No data received"
+            case .invalidURL:
+                return "Invalid server URL"
+            case .invalidResponse:
+                return "Invalid server response"
+            case .badRequest:
+                return "Invalid request"
+            case .unauthorized:
+                return "Unauthorized access"
+            case .notFound:
+                return "Resource not found"
+            case .rateLimited:
+                return "Too many requests. Please try again later."
+            case .serverError:
+                return "Server error occurred"
+            case .noData:
+                return "No data received"
+            case .unknownError(let statusCode):
+                return "Unknown error (status: \(statusCode))"
             }
         }
     }
 
-    // MARK: - Fallback responses for offline mode
+    // MARK: - Fallback Responses
 
     private func fallbackResponse(for query: String) -> String {
         let lowercaseQuery = query.lowercased()
@@ -279,12 +308,27 @@ class BreadService {
             return "Rye bread is made with flour from rye grain. It tends to be denser and darker than bread made from wheat flour and has a stronger, more distinctive flavor."
         case lowercaseQuery.contains("gluten"):
             return "Gluten is a group of proteins found in certain grains like wheat, barley, and rye. For those with celiac disease or gluten sensitivity, there are many gluten-free bread options made from alternative flours."
-        case lowercaseQuery.contains("recipe") || lowercaseQuery.contains("make"):
+        case lowercaseQuery.contains("recipe"), lowercaseQuery.contains("make"):
             return "A basic bread recipe includes flour, water, salt, and yeast. Mix ingredients, knead the dough, let it rise, shape it, let it rise again, and then bake until golden brown."
         case lowercaseQuery.contains("history"):
             return "Bread has been a staple food for thousands of years. The earliest breads were likely flat and unleavened. Evidence of bread-making dates back to 14,000 years ago in Jordan."
         default:
             return "I'm currently offline. Please check your connection and try again. I can answer questions about bread types, recipes, baking techniques, and more!"
+        }
+    }
+}
+
+// MARK: - Convenience Extensions
+
+extension BreadService {
+    /// Check if the service is reachable
+    func checkHealth() async -> Bool {
+        do {
+            let url = try buildURL(endpoint: "/health")
+            let (_, response) = try await session.data(from: url)
+            return (response as? HTTPURLResponse)?.statusCode == 200
+        } catch {
+            return false
         }
     }
 }
