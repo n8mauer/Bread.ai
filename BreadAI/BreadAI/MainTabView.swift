@@ -102,14 +102,12 @@ struct RecipesView: View {
                     VStack(alignment: .leading, spacing: 15) {
                         ForEach(breadCategories) { category in
                             CategoryHeaderView(title: category.name)
-                            
+
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 12) {
                                     ForEach(category.breads) { bread in
                                         NavigationLink(destination: RecipeDetailView(bread: bread)) {
                                             BreadCardView(bread: bread)
-                                                .opacity(bread.isSourdough ? 1.0 : 0.5) // Apply reduced opacity to all except Sourdough
-                                                .disabled(!bread.isSourdough) // Disable all except Sourdough
                                         }
                                     }
                                 }
@@ -130,26 +128,14 @@ struct RecipesView: View {
 }
 
 struct BadgesView: View {
-    // User profile data
-    @State private var userProfile = UserProfile(name: "Bread Baker", level: 1, currentPoints: 60, pointsToNextLevel: 200, profileImage: "person.crop.circle.fill")
-    
-    // Badge categories and data
-    private let badgeCategories = [
-        BadgeCategory(name: "Skill-Based Badges", badges: [
-            Badge(name: "The Rise Master", description: "Perfect your bread rise technique", icon: "arrow.up.and.down", color: .orange, isUnlocked: true, points: 50),
-            Badge(name: "Crust King/Queen", description: "Create perfect golden crusts", icon: "allergens", color: .breadBrown, isUnlocked: false, points: 100)
-        ]),
-        BadgeCategory(name: "Consistency Badges", badges: [
-            Badge(name: "Daily Dough", description: "Bake bread 7 days in a row", icon: "calendar.badge.clock", color: .red, isUnlocked: false, points: 150)
-        ])
-    ]
-    
+    @ObservedObject private var gamification = GamificationManager.shared
+
     var body: some View {
         NavigationView {
             ZStack {
                 // Background
                 Color.breadBeige.ignoresSafeArea()
-                
+
                 // Main scroll view for all content
                 ScrollView {
                     VStack(spacing: 0) {
@@ -158,28 +144,39 @@ struct BadgesView: View {
                             .font(.largeTitle.bold())
                             .foregroundColor(.breadBrown)
                             .padding(.top, 10)
-                        
+
+                        // Stats summary
+                        HStack(spacing: 20) {
+                            StatBadge(value: "\(gamification.getUnlockedBadgesCount())", label: "Unlocked")
+                            StatBadge(value: "\(gamification.getTotalBadgesCount())", label: "Total")
+                            StatBadge(value: "\(gamification.userStats.totalLoavesBaked)", label: "Bakes")
+                        }
+                        .padding(.top, 10)
+
                         // User profile header with progress
-                        UserProfileHeader(profile: userProfile)
+                        GamificationProfileHeader(profile: gamification.getUserProfile())
                             .padding(.top, 10)
-                        
+
                         // Badge categories sections
                         VStack(alignment: .leading, spacing: 10) {
-                            ForEach(badgeCategories) { category in
-                                BadgeCategoryHeader(title: category.name)
-                                
-                                // Horizontal scroll for badges in this category
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 12) {
-                                        ForEach(category.badges) { badge in
-                                            NavigationLink(destination: BadgeDetailView(badge: badge)) {
-                                                BadgeCard(badge: badge)
+                            ForEach(BadgeCategoryType.allCases, id: \.rawValue) { category in
+                                let badges = gamification.getBadgesForCategory(category)
+                                if !badges.isEmpty {
+                                    BadgeCategoryHeader(title: category.rawValue)
+
+                                    // Horizontal scroll for badges in this category
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        HStack(spacing: 12) {
+                                            ForEach(badges) { badge in
+                                                NavigationLink(destination: UnlockableBadgeDetailView(badge: badge)) {
+                                                    UnlockableBadgeCard(badge: badge)
+                                                }
+                                                .buttonStyle(PlainButtonStyle())
                                             }
-                                            .buttonStyle(PlainButtonStyle()) // Prevents the navigation link from changing appearance
                                         }
+                                        .padding(.horizontal)
+                                        .padding(.bottom, 10)
                                     }
-                                    .padding(.horizontal)
-                                    .padding(.bottom, 10)
                                 }
                             }
                         }
@@ -190,6 +187,215 @@ struct BadgesView: View {
             .navigationBarHidden(true)
         }
         .navigationViewStyle(StackNavigationViewStyle())
+    }
+}
+
+struct StatBadge: View {
+    let value: String
+    let label: String
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .font(.title2.bold())
+                .foregroundColor(.breadBrown)
+            Text(label)
+                .font(.caption)
+                .foregroundColor(.gray)
+        }
+        .frame(width: 80)
+        .padding(.vertical, 10)
+        .background(Color.white.opacity(0.8))
+        .cornerRadius(10)
+    }
+}
+
+struct GamificationProfileHeader: View {
+    let profile: GamificationUserProfile
+
+    var body: some View {
+        VStack(spacing: 15) {
+            // Profile Image
+            ZStack {
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 110, height: 110)
+                    .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 3)
+
+                Image(systemName: profile.profileImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 90, height: 90)
+                    .foregroundColor(.breadBrown)
+            }
+            .padding(.top, 20)
+
+            // User name and level
+            Text(profile.name)
+                .font(.title2.bold())
+
+            Text("Level \(profile.level)")
+                .font(.headline)
+                .foregroundColor(.breadBrown)
+
+            // Total points
+            Text("\(profile.currentPoints) Total XP")
+                .font(.subheadline)
+                .foregroundColor(.gray)
+
+            // Progress bar to next level
+            VStack(alignment: .leading, spacing: 5) {
+                HStack {
+                    Text("\(profile.pointsInLevel) / \(profile.pointsToNextLevel) XP to next level")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+
+                    Spacer()
+
+                    Text("Level \(profile.level + 1)")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.gray.opacity(0.2))
+                            .frame(height: 15)
+
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.breadBrown)
+                            .frame(width: geometry.size.width * min(profile.progressToNextLevel, 1.0), height: 15)
+                    }
+                }
+                .frame(height: 15)
+            }
+            .padding(.horizontal, 30)
+            .padding(.bottom, 20)
+        }
+        .frame(maxWidth: .infinity)
+        .background(Color.white.opacity(0.6))
+        .cornerRadius(20)
+        .padding(.horizontal)
+        .padding(.top, 10)
+    }
+}
+
+struct UnlockableBadgeCard: View {
+    let badge: UnlockableBadge
+
+    var body: some View {
+        VStack {
+            Image(systemName: badge.icon)
+                .font(.system(size: 32))
+                .foregroundColor(badge.color)
+                .padding()
+                .background(
+                    Circle()
+                        .fill(badge.color.opacity(0.2))
+                        .frame(width: 70, height: 70)
+                )
+                .padding(.bottom, 5)
+
+            Text(badge.name)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.primary)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .padding(.horizontal, 5)
+
+            Text("\(badge.points) pts")
+                .font(.caption)
+                .foregroundColor(.gray)
+                .padding(.top, 1)
+        }
+        .frame(width: 130, height: 160)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 8)
+        .background(Color.white.opacity(0.9))
+        .cornerRadius(15)
+        .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+        .opacity(badge.isUnlocked ? 1.0 : 0.5)
+        .overlay(
+            badge.isUnlocked ?
+                AnyView(
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                        .background(Circle().fill(Color.white))
+                        .offset(x: 50, y: -65)
+                ) : AnyView(EmptyView())
+        )
+    }
+}
+
+struct UnlockableBadgeDetailView: View {
+    let badge: UnlockableBadge
+
+    var body: some View {
+        ZStack {
+            Color.breadBeige.ignoresSafeArea()
+
+            ScrollView {
+                VStack(spacing: 25) {
+                    // Badge icon
+                    Image(systemName: badge.icon)
+                        .font(.system(size: 80))
+                        .foregroundColor(badge.color)
+                        .padding()
+                        .background(
+                            Circle()
+                                .fill(badge.color.opacity(0.2))
+                                .frame(width: 180, height: 180)
+                        )
+                        .padding(.top, 30)
+
+                    // Badge name
+                    Text(badge.name)
+                        .font(.title.bold())
+                        .foregroundColor(.breadBrown)
+                        .multilineTextAlignment(.center)
+
+                    // Badge description
+                    Text(badge.description)
+                        .font(.body)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+
+                    // Badge status
+                    HStack {
+                        Image(systemName: badge.isUnlocked ? "checkmark.circle.fill" : "lock.fill")
+                            .foregroundColor(badge.isUnlocked ? .green : .gray)
+
+                        Text(badge.isUnlocked ? "Unlocked" : "Locked")
+                            .font(.headline)
+                            .foregroundColor(badge.isUnlocked ? .green : .gray)
+                    }
+                    .padding()
+                    .background(Color.white.opacity(0.8))
+                    .cornerRadius(15)
+
+                    // Badge points
+                    VStack {
+                        Text("Point Value")
+                            .font(.headline)
+                            .foregroundColor(.gray)
+
+                        Text("\(badge.points) XP")
+                            .font(.title)
+                            .foregroundColor(.breadBrown)
+                            .fontWeight(.bold)
+                    }
+                    .padding()
+                    .background(Color.white.opacity(0.8))
+                    .cornerRadius(15)
+
+                    Spacer()
+                }
+                .padding()
+            }
+        }
+        .navigationTitle(badge.name)
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
