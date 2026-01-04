@@ -199,6 +199,29 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_cache_expires ON response_cache(expires_at)
         ''')
 
+        # Challenges table for tracking user completions
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS challenge_completions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                challenge_id TEXT NOT NULL,
+                week_number INTEGER NOT NULL,
+                points_awarded INTEGER NOT NULL,
+                completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, challenge_id, week_number)
+            )
+        ''')
+
+        # Tips table for baking tips
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tips (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT NOT NULL,
+                tip_text TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
         conn.commit()
 
         # Insert default prompt variants if none exist
@@ -212,6 +235,34 @@ def init_db():
             cursor.executemany(
                 "INSERT INTO prompt_variants (name, prompt_text) VALUES (?, ?)",
                 default_prompts
+            )
+            conn.commit()
+
+        # Insert default tips if none exist
+        cursor.execute("SELECT COUNT(*) FROM tips")
+        if cursor.fetchone()[0] == 0:
+            default_tips = [
+                ("proofing", "For optimal proofing, aim for 75-80°F (24-27°C). Your dough should roughly double in size."),
+                ("proofing", "The poke test: gently press your finger into the dough. If it springs back slowly, it's ready."),
+                ("proofing", "Over-proofed dough will deflate when touched. Under-proofed will spring back immediately."),
+                ("kneading", "Knead for 8-10 minutes until the dough is smooth and elastic. The windowpane test shows proper gluten development."),
+                ("kneading", "Don't add too much flour while kneading. The dough should be slightly tacky, not dry."),
+                ("kneading", "For no-knead breads, time and folding replace traditional kneading to develop gluten."),
+                ("shaping", "Shape with purpose and tension. A tight surface creates better oven spring."),
+                ("shaping", "Let shaped dough rest 15-20 minutes before final shaping to relax the gluten."),
+                ("shaping", "Flour your work surface lightly. Too much flour makes it hard to create tension."),
+                ("baking", "Preheat your oven for at least 30 minutes. A properly heated oven is crucial for good oven spring."),
+                ("baking", "Steam in the first 10-15 minutes creates a crispy crust. Use a pan of water or spray bottle."),
+                ("baking", "Internal temperature of 190-210°F (88-99°C) indicates bread is fully baked."),
+                ("baking", "Let bread cool completely before slicing. It's still cooking inside as it cools."),
+                ("general", "Measure by weight, not volume, for consistent results every time."),
+                ("general", "Water temperature matters: too hot kills yeast, too cold slows it down. Aim for 100-110°F (38-43°C)."),
+                ("general", "Salt controls fermentation speed and strengthens gluten. Don't skip it or add it directly to yeast."),
+                ("general", "Fresh yeast makes a difference. Check the expiration date and store properly."),
+            ]
+            cursor.executemany(
+                "INSERT INTO tips (category, tip_text) VALUES (?, ?)",
+                default_tips
             )
             conn.commit()
 
@@ -474,6 +525,104 @@ class AnalyticsResponse(BaseModel):
     variant_performance: dict
     common_negative_queries: list
     recent_trends: dict
+
+
+# =============================================================================
+# WEEKLY CHALLENGES
+# =============================================================================
+
+WEEKLY_CHALLENGES = [
+    {
+        "id": "bake_3",
+        "title": "Triple Threat",
+        "description": "Bake 3 loaves this week",
+        "points_reward": 150,
+        "difficulty": "medium"
+    },
+    {
+        "id": "try_new",
+        "title": "Explorer",
+        "description": "Try a bread you've never made",
+        "points_reward": 100,
+        "difficulty": "medium"
+    },
+    {
+        "id": "weekend_bake",
+        "title": "Weekend Baker",
+        "description": "Bake on Saturday or Sunday",
+        "points_reward": 75,
+        "difficulty": "easy"
+    },
+    {
+        "id": "share_photo",
+        "title": "Show Off",
+        "description": "Share your bake on social media",
+        "points_reward": 50,
+        "difficulty": "easy"
+    },
+    {
+        "id": "sourdough_start",
+        "title": "Sourdough Starter",
+        "description": "Feed your starter every day this week",
+        "points_reward": 100,
+        "difficulty": "medium"
+    },
+    {
+        "id": "early_bird",
+        "title": "Early Bird Baker",
+        "description": "Bake before 9 AM",
+        "points_reward": 75,
+        "difficulty": "easy"
+    },
+]
+
+
+class Challenge(BaseModel):
+    id: str
+    title: str
+    description: str
+    points_reward: int
+    difficulty: str
+    expires_at: str
+
+
+class ChallengeCompletionRequest(BaseModel):
+    user_id: str = "default_user"  # For MVP, using default user
+
+
+class ChallengeCompletionResponse(BaseModel):
+    success: bool
+    points_awarded: int
+    message: str
+
+
+class TipResponse(BaseModel):
+    category: str
+    tip: str
+
+
+class TechniqueRequest(BaseModel):
+    technique: str
+
+
+class TechniqueResponse(BaseModel):
+    technique: str
+    explanation: str
+    why_used: str
+    how_to: str
+    common_mistakes: list[str]
+    cached: bool = False
+
+
+class TroubleshootRequest(BaseModel):
+    problem: str
+
+
+class TroubleshootResponse(BaseModel):
+    problem: str
+    likely_causes: list[str]
+    solutions: list[str]
+    prevention_tips: list[str]
 
 
 # =============================================================================
@@ -875,6 +1024,355 @@ async def cache_clear():
     """Clear all cache entries (use with caution)."""
     deleted = clear_all_cache()
     return {"success": True, "deleted_entries": deleted}
+
+
+# =============================================================================
+# WEEKLY CHALLENGES ENDPOINTS
+# =============================================================================
+
+def get_current_week_number() -> int:
+    """Get ISO week number for challenge rotation."""
+    return datetime.now().isocalendar()[1]
+
+
+def get_week_end_date() -> str:
+    """Get end of current week in ISO format."""
+    now = datetime.now()
+    days_until_sunday = (6 - now.weekday()) % 7
+    end_of_week = now + timedelta(days=days_until_sunday)
+    return end_of_week.replace(hour=23, minute=59, second=59).isoformat()
+
+
+@app.get("/challenges")
+async def get_challenges():
+    """Get current weekly challenges with expiration time."""
+    week_number = get_current_week_number()
+    expires_at = get_week_end_date()
+
+    # Rotate challenges based on week number
+    # This ensures different challenges appear each week
+    num_challenges = len(WEEKLY_CHALLENGES)
+    rotation_offset = week_number % num_challenges
+
+    # Select 4 challenges for this week
+    selected_challenges = []
+    for i in range(4):
+        challenge_index = (rotation_offset + i) % num_challenges
+        challenge = WEEKLY_CHALLENGES[challenge_index].copy()
+        challenge["expires_at"] = expires_at
+        selected_challenges.append(Challenge(**challenge))
+
+    return {"challenges": selected_challenges, "week_number": week_number}
+
+
+@app.post("/challenges/{challenge_id}/complete", response_model=ChallengeCompletionResponse)
+async def complete_challenge(challenge_id: str, request: ChallengeCompletionRequest):
+    """Mark a challenge as completed and award points."""
+    # Find the challenge
+    challenge = next((c for c in WEEKLY_CHALLENGES if c["id"] == challenge_id), None)
+    if not challenge:
+        raise HTTPException(status_code=404, detail="Challenge not found")
+
+    week_number = get_current_week_number()
+    user_id = request.user_id
+
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor()
+
+            # Check if already completed this week
+            cursor.execute('''
+                SELECT id FROM challenge_completions
+                WHERE user_id = ? AND challenge_id = ? AND week_number = ?
+            ''', (user_id, challenge_id, week_number))
+
+            if cursor.fetchone():
+                return ChallengeCompletionResponse(
+                    success=False,
+                    points_awarded=0,
+                    message="Challenge already completed this week"
+                )
+
+            # Record completion
+            cursor.execute('''
+                INSERT INTO challenge_completions (user_id, challenge_id, week_number, points_awarded)
+                VALUES (?, ?, ?, ?)
+            ''', (user_id, challenge_id, week_number, challenge["points_reward"]))
+
+            conn.commit()
+
+            return ChallengeCompletionResponse(
+                success=True,
+                points_awarded=challenge["points_reward"],
+                message=f"Challenge completed! You earned {challenge['points_reward']} points!"
+            )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to complete challenge: {str(e)}")
+
+
+# =============================================================================
+# BAKING TIPS ENDPOINTS
+# =============================================================================
+
+@app.get("/tips", response_model=TipResponse)
+async def get_random_tip(category: Optional[str] = None):
+    """Get a random baking tip, optionally filtered by category."""
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor()
+
+            if category:
+                # Validate category
+                valid_categories = ["proofing", "kneading", "shaping", "baking", "general"]
+                if category not in valid_categories:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid category. Must be one of: {', '.join(valid_categories)}"
+                    )
+
+                cursor.execute('''
+                    SELECT category, tip_text FROM tips
+                    WHERE category = ?
+                    ORDER BY RANDOM()
+                    LIMIT 1
+                ''', (category,))
+            else:
+                cursor.execute('''
+                    SELECT category, tip_text FROM tips
+                    ORDER BY RANDOM()
+                    LIMIT 1
+                ''')
+
+            row = cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="No tips found")
+
+            return TipResponse(category=row["category"], tip=row["tip_text"])
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve tip: {str(e)}")
+
+
+@app.get("/tips/daily", response_model=TipResponse)
+async def get_daily_tip():
+    """Get tip-of-the-day (consistent for 24 hours based on date hash)."""
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor()
+
+            # Get total number of tips
+            cursor.execute("SELECT COUNT(*) FROM tips")
+            total_tips = cursor.fetchone()[0]
+
+            if total_tips == 0:
+                raise HTTPException(status_code=404, detail="No tips available")
+
+            # Use date hash to select consistent tip for the day
+            today = datetime.now().strftime("%Y-%m-%d")
+            date_hash = int(hashlib.sha256(today.encode()).hexdigest(), 16)
+            tip_index = date_hash % total_tips
+
+            cursor.execute('''
+                SELECT category, tip_text FROM tips
+                LIMIT 1 OFFSET ?
+            ''', (tip_index,))
+
+            row = cursor.fetchone()
+            return TipResponse(category=row["category"], tip=row["tip_text"])
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve daily tip: {str(e)}")
+
+
+# =============================================================================
+# TECHNIQUE EXPLANATION ENDPOINT
+# =============================================================================
+
+TECHNIQUE_PROMPT = """Explain the bread baking technique: {technique}
+
+Provide a detailed, structured explanation covering:
+1. What it is (brief definition)
+2. Why it's used (benefits and purpose)
+3. How to do it (step-by-step)
+4. Common mistakes to avoid
+
+Return ONLY valid JSON in this exact format (no markdown, no code blocks):
+{{
+    "technique": "{technique}",
+    "explanation": "A clear 2-3 sentence explanation of what this technique is",
+    "why_used": "1-2 sentences explaining the purpose and benefits",
+    "how_to": "Step-by-step instructions in a single paragraph",
+    "common_mistakes": [
+        "First common mistake to avoid",
+        "Second common mistake to avoid",
+        "Third common mistake to avoid"
+    ]
+}}
+
+Be accurate and practical. Focus on actionable information."""
+
+
+@app.post("/technique", response_model=TechniqueResponse)
+async def explain_technique(request: TechniqueRequest):
+    """Get detailed explanation of a bread baking technique using Claude AI."""
+    if not request.technique.strip():
+        raise HTTPException(status_code=400, detail="Technique cannot be empty")
+
+    # Sanitize input
+    sanitized_technique = sanitize_input(
+        request.technique,
+        max_length=MAX_BREAD_NAME_LENGTH,
+        field_name="technique"
+    )
+
+    # Check cache first (techniques don't change, so long TTL)
+    cache_key = generate_cache_key(sanitized_technique, "technique")
+    cached = get_cached_response(cache_key)
+
+    if cached:
+        technique_data = cached["response_data"]
+        return TechniqueResponse(**technique_data, cached=True)
+
+    try:
+        message = client.messages.create(
+            model="claude-3-5-haiku-20241022",
+            max_tokens=1000,
+            messages=[
+                {"role": "user", "content": TECHNIQUE_PROMPT.format(technique=sanitized_technique)}
+            ]
+        )
+
+        response_text = message.content[0].text.strip()
+
+        # Parse JSON response
+        try:
+            technique_data = json.loads(response_text)
+        except json.JSONDecodeError:
+            json_match = re.search(r'\{[\s\S]*\}', response_text)
+            if json_match:
+                technique_data = json.loads(json_match.group())
+            else:
+                raise HTTPException(status_code=500, detail="Failed to parse technique explanation")
+
+        # Cache the technique (24 hour TTL)
+        cache_response(
+            cache_key=cache_key,
+            cache_type="technique",
+            query=sanitized_technique,
+            response_data=technique_data,
+            prompt_variant="technique_default",
+            ttl_seconds=86400
+        )
+
+        return TechniqueResponse(**technique_data, cached=False)
+
+    except anthropic.APIConnectionError:
+        raise HTTPException(status_code=503, detail="Unable to connect to AI service")
+    except anthropic.RateLimitError:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
+    except anthropic.APIStatusError as e:
+        raise HTTPException(status_code=500, detail=f"AI service error: {str(e)}")
+
+
+# =============================================================================
+# TROUBLESHOOTING ENDPOINT
+# =============================================================================
+
+TROUBLESHOOT_PROMPT = """Diagnose and solve this bread baking problem: {problem}
+
+Provide a structured troubleshooting guide covering:
+1. Likely causes (3-4 most common reasons)
+2. Solutions (specific fixes for each cause)
+3. Prevention tips (how to avoid this in the future)
+
+Return ONLY valid JSON in this exact format (no markdown, no code blocks):
+{{
+    "problem": "{problem}",
+    "likely_causes": [
+        "First likely cause",
+        "Second likely cause",
+        "Third likely cause"
+    ],
+    "solutions": [
+        "Solution for first cause",
+        "Solution for second cause",
+        "Solution for third cause"
+    ],
+    "prevention_tips": [
+        "First prevention tip",
+        "Second prevention tip",
+        "Third prevention tip"
+    ]
+}}
+
+Be specific and practical. Focus on actionable solutions."""
+
+
+@app.post("/troubleshoot", response_model=TroubleshootResponse)
+async def troubleshoot_problem(request: TroubleshootRequest):
+    """Diagnose bread baking problems and provide solutions using Claude AI."""
+    if not request.problem.strip():
+        raise HTTPException(status_code=400, detail="Problem description cannot be empty")
+
+    # Sanitize input to prevent prompt injection
+    sanitized_problem = sanitize_input(
+        request.problem,
+        max_length=MAX_QUERY_LENGTH,
+        field_name="problem"
+    )
+
+    # Check cache (common problems can be cached)
+    cache_key = generate_cache_key(sanitized_problem, "troubleshoot")
+    cached = get_cached_response(cache_key)
+
+    if cached:
+        troubleshoot_data = cached["response_data"]
+        return TroubleshootResponse(**troubleshoot_data)
+
+    try:
+        message = client.messages.create(
+            model="claude-3-5-haiku-20241022",
+            max_tokens=1200,
+            messages=[
+                {"role": "user", "content": TROUBLESHOOT_PROMPT.format(problem=sanitized_problem)}
+            ]
+        )
+
+        response_text = message.content[0].text.strip()
+
+        # Parse JSON response
+        try:
+            troubleshoot_data = json.loads(response_text)
+        except json.JSONDecodeError:
+            json_match = re.search(r'\{[\s\S]*\}', response_text)
+            if json_match:
+                troubleshoot_data = json.loads(json_match.group())
+            else:
+                raise HTTPException(status_code=500, detail="Failed to parse troubleshooting response")
+
+        # Cache the troubleshooting response (1 hour TTL)
+        cache_response(
+            cache_key=cache_key,
+            cache_type="troubleshoot",
+            query=sanitized_problem,
+            response_data=troubleshoot_data,
+            prompt_variant="troubleshoot_default",
+            ttl_seconds=CACHE_TTL_ASK
+        )
+
+        return TroubleshootResponse(**troubleshoot_data)
+
+    except anthropic.APIConnectionError:
+        raise HTTPException(status_code=503, detail="Unable to connect to AI service")
+    except anthropic.RateLimitError:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
+    except anthropic.APIStatusError as e:
+        raise HTTPException(status_code=500, detail=f"AI service error: {str(e)}")
 
 
 if __name__ == "__main__":

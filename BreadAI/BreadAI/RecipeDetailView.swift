@@ -23,23 +23,128 @@ struct SourdoughRecipeView: View {
     @ObservedObject private var gamification = GamificationManager.shared
     @State private var showBakeLogged = false
 
+    // Ingredient checklist state
+    @State private var checkedIngredients: Set<Int> = []
+
+    // Guided mode state
+    @State private var isGuidedMode = false
+    @State private var currentStep = 0
+    @State private var completedSteps: Set<Int> = []
+
+    // Ask AI state
+    @State private var showAIHelp = false
+    @State private var aiHelpStep: Int?
+    @State private var aiHelpResponse: String = ""
+    @State private var isLoadingAIHelp = false
+
+    // Timer state
+    @State private var showTimer = false
+    @State private var timerMinutes = 30
+
+    let ingredients = [
+        (amount: "100g", ingredient: "mature sourdough starter"),
+        (amount: "150g", ingredient: "bread flour"),
+        (amount: "150g", ingredient: "filtered water (room temperature)"),
+        (amount: "500g", ingredient: "bread flour"),
+        (amount: "337g", ingredient: "filtered water (room temperature)"),
+        (amount: "10g", ingredient: "salt"),
+        (amount: "200g", ingredient: "active, bubbly sourdough starter")
+    ]
+
+    let instructions = [
+        "Prepare the starter: Mix the starter ingredients in a clean jar, cover loosely and leave at room temperature for 8-12 hours until bubbly and doubled in size.",
+        "Autolyse: Mix flour and water (no salt or starter yet) in a large bowl until no dry flour remains. Cover and rest for 30 minutes.",
+        "Add starter and salt: Add the bubbly starter and salt to the dough, mix thoroughly using wet hands or a dough scraper.",
+        "Bulk fermentation: For the next 3-4 hours, perform 4-6 sets of stretch and folds, spaced 30 minutes apart. Cover and let rise until doubled in size.",
+        "Shape: Turn the dough onto a lightly floured surface, shape into a round or oval loaf, and place in a floured banneton or bowl lined with a floured kitchen towel.",
+        "Final proof: Cover and refrigerate for 12-16 hours (overnight).",
+        "Preheat: Place a Dutch oven in the oven and preheat to 500°F (260°C) for 45-60 minutes.",
+        "Bake: Carefully transfer the cold dough to the hot Dutch oven, score the top with a sharp knife or razor blade, cover, and bake for 20 minutes.",
+        "Reduce the temperature to 450°F (230°C), remove the lid, and bake for another 20-25 minutes until deep golden brown.",
+        "Cool: Transfer to a wire rack and cool completely for at least 1 hour before slicing."
+    ]
+
+    var progressPercentage: Double {
+        guard !instructions.isEmpty else { return 0 }
+        return Double(completedSteps.count) / Double(instructions.count)
+    }
+
     var body: some View {
+        ZStack {
+            if isGuidedMode {
+                guidedModeView
+            } else {
+                normalRecipeView
+            }
+        }
+        .background(Color.breadBeige.ignoresSafeArea())
+        .navigationTitle("Sourdough Recipe")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert(isPresented: $gamification.showBadgeUnlockAlert) {
+            Alert(
+                title: Text("Badge Unlocked!"),
+                message: Text("You earned: \(gamification.recentlyUnlockedBadge?.name ?? "")"),
+                dismissButton: .default(Text("Awesome!"))
+            )
+        }
+        .sheet(isPresented: $showAIHelp) {
+            aiHelpSheet
+        }
+        .sheet(isPresented: $showTimer) {
+            timerSheet
+        }
+    }
+
+    var normalRecipeView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                // Progress Bar
+                if !completedSteps.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Recipe Progress")
+                                .font(.caption.bold())
+                                .foregroundColor(.breadBrown)
+                            Spacer()
+                            Text("\(Int(progressPercentage * 100))%")
+                                .font(.caption.bold())
+                                .foregroundColor(.breadBrown)
+                        }
+
+                        GeometryReader { geometry in
+                            ZStack(alignment: .leading) {
+                                Rectangle()
+                                    .fill(Color.gray.opacity(0.3))
+                                    .frame(height: 8)
+                                    .cornerRadius(4)
+
+                                Rectangle()
+                                    .fill(Color.breadBrown)
+                                    .frame(width: geometry.size.width * progressPercentage, height: 8)
+                                    .cornerRadius(4)
+                            }
+                        }
+                        .frame(height: 8)
+                    }
+                    .padding()
+                    .background(Color.white.opacity(0.9))
+                    .cornerRadius(10)
+                }
+
                 // Header
                 HStack {
                     VStack(alignment: .leading) {
                         Text("Sourdough Bread")
                             .font(.largeTitle.bold())
                             .foregroundColor(.breadBrown)
-                        
+
                         Text("Classic artisan bread with natural leavening")
                             .font(.subheadline)
                             .foregroundColor(.gray)
                     }
-                    
+
                     Spacer()
-                    
+
                     Image("bread.ai logo no background")
                         .resizable()
                         .scaledToFit()
@@ -88,62 +193,92 @@ struct SourdoughRecipeView: View {
                 
                 // Ingredients
                 Group {
-                    Text("Ingredients")
-                        .font(.title2.bold())
-                        .foregroundColor(.breadBrown)
-                        .padding(.top)
-                    
+                    HStack {
+                        Text("Ingredients")
+                            .font(.title2.bold())
+                            .foregroundColor(.breadBrown)
+                        Spacer()
+                        Text("\(checkedIngredients.count) of \(ingredients.count) ready")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Color.breadBrown.opacity(0.2))
+                            .cornerRadius(8)
+                    }
+                    .padding(.top)
+
                     // Starter
                     Text("For the starter:")
                         .font(.headline)
                         .padding(.top, 5)
-                    
+
                     VStack(alignment: .leading, spacing: 8) {
-                        IngredientRow(amount: "100g", ingredient: "mature sourdough starter")
-                        IngredientRow(amount: "150g", ingredient: "bread flour")
-                        IngredientRow(amount: "150g", ingredient: "filtered water (room temperature)")
+                        CheckableIngredientRow(index: 0, amount: ingredients[0].amount, ingredient: ingredients[0].ingredient, isChecked: checkedIngredients.contains(0)) {
+                            toggleIngredient(0)
+                        }
+                        CheckableIngredientRow(index: 1, amount: ingredients[1].amount, ingredient: ingredients[1].ingredient, isChecked: checkedIngredients.contains(1)) {
+                            toggleIngredient(1)
+                        }
+                        CheckableIngredientRow(index: 2, amount: ingredients[2].amount, ingredient: ingredients[2].ingredient, isChecked: checkedIngredients.contains(2)) {
+                            toggleIngredient(2)
+                        }
                     }
-                    
+
                     // Main dough
                     Text("For the main dough:")
                         .font(.headline)
                         .padding(.top, 5)
-                    
+
                     VStack(alignment: .leading, spacing: 8) {
-                        IngredientRow(amount: "500g", ingredient: "bread flour")
-                        IngredientRow(amount: "337g", ingredient: "filtered water (room temperature)")
-                        IngredientRow(amount: "10g", ingredient: "salt")
-                        IngredientRow(amount: "200g", ingredient: "active, bubbly sourdough starter")
+                        CheckableIngredientRow(index: 3, amount: ingredients[3].amount, ingredient: ingredients[3].ingredient, isChecked: checkedIngredients.contains(3)) {
+                            toggleIngredient(3)
+                        }
+                        CheckableIngredientRow(index: 4, amount: ingredients[4].amount, ingredient: ingredients[4].ingredient, isChecked: checkedIngredients.contains(4)) {
+                            toggleIngredient(4)
+                        }
+                        CheckableIngredientRow(index: 5, amount: ingredients[5].amount, ingredient: ingredients[5].ingredient, isChecked: checkedIngredients.contains(5)) {
+                            toggleIngredient(5)
+                        }
+                        CheckableIngredientRow(index: 6, amount: ingredients[6].amount, ingredient: ingredients[6].ingredient, isChecked: checkedIngredients.contains(6)) {
+                            toggleIngredient(6)
+                        }
                     }
                 }
                 
                 // Instructions
                 Group {
-                    Text("Instructions")
-                        .font(.title2.bold())
-                        .foregroundColor(.breadBrown)
-                        .padding(.top)
-                    
+                    HStack {
+                        Text("Instructions")
+                            .font(.title2.bold())
+                            .foregroundColor(.breadBrown)
+                        Spacer()
+                        Text("Step \(completedSteps.count) of \(instructions.count)")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.top)
+
                     VStack(alignment: .leading, spacing: 15) {
-                        InstructionRow(step: 1, text: "Prepare the starter: Mix the starter ingredients in a clean jar, cover loosely and leave at room temperature for 8-12 hours until bubbly and doubled in size.")
-                        
-                        InstructionRow(step: 2, text: "Autolyse: Mix flour and water (no salt or starter yet) in a large bowl until no dry flour remains. Cover and rest for 30 minutes.")
-                        
-                        InstructionRow(step: 3, text: "Add starter and salt: Add the bubbly starter and salt to the dough, mix thoroughly using wet hands or a dough scraper.")
-                        
-                        InstructionRow(step: 4, text: "Bulk fermentation: For the next 3-4 hours, perform 4-6 sets of stretch and folds, spaced 30 minutes apart. Cover and let rise until doubled in size.")
-                        
-                        InstructionRow(step: 5, text: "Shape: Turn the dough onto a lightly floured surface, shape into a round or oval loaf, and place in a floured banneton or bowl lined with a floured kitchen towel.")
-                        
-                        InstructionRow(step: 6, text: "Final proof: Cover and refrigerate for 12-16 hours (overnight).")
-                        
-                        InstructionRow(step: 7, text: "Preheat: Place a Dutch oven in the oven and preheat to 500°F (260°C) for 45-60 minutes.")
-                        
-                        InstructionRow(step: 8, text: "Bake: Carefully transfer the cold dough to the hot Dutch oven, score the top with a sharp knife or razor blade, cover, and bake for 20 minutes.")
-                        
-                        InstructionRow(step: 9, text: "Reduce the temperature to 450°F (230°C), remove the lid, and bake for another 20-25 minutes until deep golden brown.")
-                        
-                        InstructionRow(step: 10, text: "Cool: Transfer to a wire rack and cool completely for at least 1 hour before slicing.")
+                        ForEach(Array(instructions.enumerated()), id: \.offset) { index, instruction in
+                            EnhancedInstructionRow(
+                                step: index + 1,
+                                text: instruction,
+                                isCompleted: completedSteps.contains(index),
+                                onToggleComplete: {
+                                    toggleStepCompletion(index)
+                                },
+                                onAskAI: {
+                                    askAIForHelp(step: index + 1, text: instruction)
+                                },
+                                onStartTimer: {
+                                    if let minutes = extractTimeInMinutes(from: instruction) {
+                                        timerMinutes = minutes
+                                        showTimer = true
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
                 
@@ -159,6 +294,24 @@ struct SourdoughRecipeView: View {
                         .background(Color.white.opacity(0.9))
                         .cornerRadius(8)
                 }
+
+                // Start Cooking Button
+                Button(action: {
+                    currentStep = 0
+                    isGuidedMode = true
+                }) {
+                    HStack {
+                        Image(systemName: "play.fill")
+                        Text("Start Cooking Mode")
+                    }
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.breadBrown.opacity(0.8))
+                    .cornerRadius(12)
+                }
+                .padding(.top, 10)
 
                 // Log Bake Button
                 Button(action: {
@@ -187,16 +340,276 @@ struct SourdoughRecipeView: View {
             }
             .padding()
         }
-        .background(Color.breadBeige.ignoresSafeArea())
-        .navigationTitle("Sourdough Recipe")
-        .navigationBarTitleDisplayMode(.inline)
-        .alert(isPresented: $gamification.showBadgeUnlockAlert) {
-            Alert(
-                title: Text("Badge Unlocked!"),
-                message: Text("You earned: \(gamification.recentlyUnlockedBadge?.name ?? "")"),
-                dismissButton: .default(Text("Awesome!"))
-            )
+    }
+
+    var guidedModeView: some View {
+        VStack(spacing: 0) {
+            // Header with exit button
+            HStack {
+                Button(action: {
+                    isGuidedMode = false
+                }) {
+                    HStack {
+                        Image(systemName: "xmark.circle.fill")
+                        Text("Exit")
+                    }
+                    .foregroundColor(.breadBrown)
+                }
+                Spacer()
+                Text("Step \(currentStep + 1) of \(instructions.count)")
+                    .font(.headline)
+                    .foregroundColor(.breadBrown)
+            }
+            .padding()
+            .background(Color.white.opacity(0.95))
+
+            // Progress bar
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(height: 4)
+
+                    Rectangle()
+                        .fill(Color.breadBrown)
+                        .frame(width: geometry.size.width * (Double(currentStep + 1) / Double(instructions.count)), height: 4)
+                }
+            }
+            .frame(height: 4)
+
+            ScrollView {
+                VStack(spacing: 30) {
+                    // Current step
+                    VStack(alignment: .leading, spacing: 20) {
+                        Text("Step \(currentStep + 1)")
+                            .font(.title3.bold())
+                            .foregroundColor(.breadBrown)
+
+                        Text(instructions[currentStep])
+                            .font(.title3)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        // Timer button if applicable
+                        if let minutes = extractTimeInMinutes(from: instructions[currentStep]) {
+                            Button(action: {
+                                timerMinutes = minutes
+                                showTimer = true
+                            }) {
+                                HStack {
+                                    Image(systemName: "timer")
+                                    Text("Start \(minutes) min timer")
+                                }
+                                .font(.headline)
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.orange)
+                                .cornerRadius(12)
+                            }
+                        }
+
+                        // Ask AI button
+                        Button(action: {
+                            askAIForHelp(step: currentStep + 1, text: instructions[currentStep])
+                        }) {
+                            HStack {
+                                Image(systemName: "questionmark.circle")
+                                Text("Ask AI for Help")
+                            }
+                            .font(.headline)
+                            .foregroundColor(.breadBrown)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.white)
+                            .cornerRadius(12)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color.breadBrown, lineWidth: 2)
+                            )
+                        }
+                    }
+                    .padding()
+                    .background(Color.white.opacity(0.95))
+                    .cornerRadius(15)
+                }
+                .padding()
+            }
+
+            // Navigation buttons
+            HStack(spacing: 20) {
+                Button(action: {
+                    if currentStep > 0 {
+                        currentStep -= 1
+                    }
+                }) {
+                    HStack {
+                        Image(systemName: "chevron.left")
+                        Text("Previous")
+                    }
+                    .font(.headline)
+                    .foregroundColor(currentStep > 0 ? .white : .gray)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(currentStep > 0 ? Color.breadBrown : Color.gray.opacity(0.3))
+                    .cornerRadius(12)
+                }
+                .disabled(currentStep == 0)
+
+                Button(action: {
+                    completedSteps.insert(currentStep)
+                    if currentStep < instructions.count - 1 {
+                        currentStep += 1
+                    } else {
+                        isGuidedMode = false
+                    }
+                }) {
+                    HStack {
+                        Text(currentStep < instructions.count - 1 ? "Next" : "Finish")
+                        Image(systemName: currentStep < instructions.count - 1 ? "chevron.right" : "checkmark.circle.fill")
+                    }
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.breadBrown)
+                    .cornerRadius(12)
+                }
+            }
+            .padding()
+            .background(Color.white.opacity(0.95))
         }
+        .background(Color.breadBeige.ignoresSafeArea())
+    }
+
+    var aiHelpSheet: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                if isLoadingAIHelp {
+                    VStack(spacing: 20) {
+                        ProgressView()
+                            .scaleEffect(1.5)
+                        Text("Getting AI help...")
+                            .font(.headline)
+                            .foregroundColor(.breadBrown)
+                    }
+                    .frame(maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 15) {
+                            Text("Step \(aiHelpStep ?? 1)")
+                                .font(.headline)
+                                .foregroundColor(.breadBrown)
+
+                            Text(aiHelpResponse)
+                                .font(.body)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding()
+                    }
+                }
+            }
+            .navigationTitle("AI Assistant")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        showAIHelp = false
+                    }
+                }
+            }
+        }
+    }
+
+    var timerSheet: some View {
+        NavigationView {
+            VStack(spacing: 30) {
+                Spacer()
+
+                Image(systemName: "timer")
+                    .font(.system(size: 80))
+                    .foregroundColor(.breadBrown)
+
+                Text("\(timerMinutes) minutes")
+                    .font(.largeTitle.bold())
+                    .foregroundColor(.breadBrown)
+
+                Text("Timer feature will be integrated with system timer")
+                    .font(.subheadline)
+                    .foregroundColor(.gray)
+                    .multilineTextAlignment(.center)
+                    .padding()
+
+                Spacer()
+            }
+            .navigationTitle("Timer")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        showTimer = false
+                    }
+                }
+            }
+        }
+    }
+
+    func toggleIngredient(_ index: Int) {
+        if checkedIngredients.contains(index) {
+            checkedIngredients.remove(index)
+        } else {
+            checkedIngredients.insert(index)
+        }
+    }
+
+    func toggleStepCompletion(_ index: Int) {
+        if completedSteps.contains(index) {
+            completedSteps.remove(index)
+        } else {
+            completedSteps.insert(index)
+        }
+    }
+
+    func askAIForHelp(step: Int, text: String) {
+        aiHelpStep = step
+        aiHelpResponse = ""
+        isLoadingAIHelp = true
+        showAIHelp = true
+
+        Task {
+            let query = "Help me with step \(step) of my sourdough bread recipe: \(text)"
+            let result = await BreadService.shared.askAboutBreadWithFallback(query: query)
+
+            await MainActor.run {
+                aiHelpResponse = result.response
+                isLoadingAIHelp = false
+            }
+        }
+    }
+
+    func extractTimeInMinutes(from text: String) -> Int? {
+        let lowercased = text.lowercased()
+
+        // Look for patterns like "30 minutes", "8-12 hours", "45-60 minutes"
+        if lowercased.contains("30 minutes") || lowercased.contains("30 min") {
+            return 30
+        } else if lowercased.contains("45-60 minutes") || lowercased.contains("45 min") {
+            return 45
+        } else if lowercased.contains("20-25 minutes") || lowercased.contains("20 minutes") {
+            return 20
+        } else if lowercased.contains("8-12 hours") || lowercased.contains("12-16 hours") {
+            // For hours, convert to minutes (use lower bound)
+            if lowercased.contains("8-12") {
+                return 480 // 8 hours
+            } else if lowercased.contains("12-16") {
+                return 720 // 12 hours
+            }
+        } else if lowercased.contains("3-4 hours") {
+            return 180 // 3 hours
+        } else if lowercased.contains("1 hour") {
+            return 60
+        }
+
+        return nil
     }
 }
 
@@ -427,7 +840,7 @@ struct IngredientRow: View {
 struct InstructionRow: View {
     let step: Int
     let text: String
-    
+
     var body: some View {
         HStack(alignment: .top, spacing: 15) {
             Text("\(step)")
@@ -436,12 +849,132 @@ struct InstructionRow: View {
                 .frame(width: 30, height: 30)
                 .background(Color.breadBrown)
                 .clipShape(Circle())
-            
+
             Text(text)
                 .fixedSize(horizontal: false, vertical: true)
-            
+
             Spacer()
         }
+    }
+}
+
+struct CheckableIngredientRow: View {
+    let index: Int
+    let amount: String
+    let ingredient: String
+    let isChecked: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(alignment: .top) {
+                Image(systemName: isChecked ? "checkmark.circle.fill" : "circle")
+                    .foregroundColor(isChecked ? .breadBrown : .gray)
+                    .font(.title3)
+
+                Text(amount)
+                    .font(.subheadline)
+                    .frame(width: 60, alignment: .leading)
+                    .foregroundColor(.gray)
+                    .strikethrough(isChecked)
+
+                Text(ingredient)
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
+                    .strikethrough(isChecked)
+
+                Spacer()
+            }
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+struct EnhancedInstructionRow: View {
+    let step: Int
+    let text: String
+    let isCompleted: Bool
+    let onToggleComplete: () -> Void
+    let onAskAI: () -> Void
+    let onStartTimer: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 15) {
+                // Step number with checkbox
+                Button(action: onToggleComplete) {
+                    ZStack {
+                        Circle()
+                            .fill(isCompleted ? Color.green : Color.breadBrown)
+                            .frame(width: 30, height: 30)
+
+                        if isCompleted {
+                            Image(systemName: "checkmark")
+                                .font(.caption.bold())
+                                .foregroundColor(.white)
+                        } else {
+                            Text("\(step)")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                        }
+                    }
+                }
+
+                Text(text)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .strikethrough(isCompleted)
+                    .foregroundColor(isCompleted ? .gray : .primary)
+
+                Spacer()
+            }
+
+            // Action buttons
+            HStack(spacing: 10) {
+                // Ask AI button
+                Button(action: onAskAI) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "questionmark.circle")
+                        Text("Ask AI")
+                    }
+                    .font(.caption)
+                    .foregroundColor(.breadBrown)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.white)
+                    .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.breadBrown, lineWidth: 1)
+                    )
+                }
+
+                // Timer button (only show if step mentions time)
+                if hasTimeReference(text) {
+                    Button(action: onStartTimer) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "timer")
+                            Text("Timer")
+                        }
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.white)
+                        .cornerRadius(8)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.orange, lineWidth: 1)
+                        )
+                    }
+                }
+            }
+            .padding(.leading, 45)
+        }
+    }
+
+    func hasTimeReference(_ text: String) -> Bool {
+        let lowercased = text.lowercased()
+        return lowercased.contains("minutes") || lowercased.contains("hours") || lowercased.contains("min")
     }
 }
 

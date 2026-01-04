@@ -46,34 +46,270 @@ struct MainTabView: View {
 // These will be replaced with actual implementations later
 
 struct TimerView: View {
+    @ObservedObject private var timerManager = TimerManager.shared
+    @State private var showingCustomTimer = false
+    @State private var customMinutes = ""
+    @State private var customTimerName = ""
+
     var body: some View {
         ZStack {
             Color.breadBeige.ignoresSafeArea()
-            
-            VStack {
-                Image("bread.ai logo no background")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 100)
-                    .padding(.top, 40)
-                
-                Text("Timer")
-                    .font(.largeTitle.bold())
-                    .foregroundColor(.breadBrown)
-                    .padding()
-                
-                Text("Coming Soon!")
-                    .font(.title2)
-                    .foregroundColor(.gray)
-                    .padding()
-                
-                Text("Track your bread rising and baking times")
-                    .multilineTextAlignment(.center)
-                    .padding()
-                
-                Spacer()
+
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Header
+                    Text("Timer")
+                        .font(.largeTitle.bold())
+                        .foregroundColor(.breadBrown)
+                        .padding(.top, 15)
+
+                    Image("bread.ai logo no background")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 100)
+                        .padding(.bottom, 10)
+
+                    // Active Timer Display
+                    if timerManager.timeRemaining > 0 || timerManager.isRunning {
+                        ActiveTimerCard(timerManager: timerManager)
+                            .padding(.horizontal)
+                    } else {
+                        // Preset Timers
+                        VStack(alignment: .leading, spacing: 15) {
+                            Text("Preset Timers")
+                                .font(.title2.bold())
+                                .foregroundColor(.breadBrown)
+                                .padding(.horizontal)
+
+                            LazyVGrid(columns: [
+                                GridItem(.flexible()),
+                                GridItem(.flexible())
+                            ], spacing: 12) {
+                                ForEach(TimerManager.presets) { preset in
+                                    PresetTimerButton(preset: preset)
+                                }
+                            }
+                            .padding(.horizontal)
+                        }
+
+                        // Custom Timer Button
+                        Button(action: { showingCustomTimer = true }) {
+                            HStack {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.title2)
+                                Text("Custom Timer")
+                                    .font(.headline)
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.breadBrown)
+                            .cornerRadius(12)
+                        }
+                        .padding(.horizontal)
+                        .padding(.top, 10)
+                    }
+
+                    Spacer()
+                }
+                .padding(.bottom, 30)
             }
+        }
+        .sheet(isPresented: $showingCustomTimer) {
+            CustomTimerSheet(
+                minutes: $customMinutes,
+                timerName: $customTimerName,
+                onStart: {
+                    if let mins = Int(customMinutes), mins > 0 {
+                        let duration = TimeInterval(mins * 60)
+                        let name = customTimerName.isEmpty ? "Custom Timer" : customTimerName
+                        timerManager.start(duration: duration, name: name)
+                        showingCustomTimer = false
+                        customMinutes = ""
+                        customTimerName = ""
+                    }
+                }
+            )
+        }
+    }
+}
+
+struct ActiveTimerCard: View {
+    @ObservedObject var timerManager: TimerManager
+
+    var body: some View {
+        VStack(spacing: 20) {
+            // Timer name
+            Text(timerManager.timerName)
+                .font(.title2.bold())
+                .foregroundColor(.breadBrown)
+
+            // Circular progress
+            ZStack {
+                Circle()
+                    .stroke(Color.gray.opacity(0.2), lineWidth: 20)
+                    .frame(width: 250, height: 250)
+
+                Circle()
+                    .trim(from: 0, to: CGFloat(timerManager.progress))
+                    .stroke(Color.breadBrown, style: StrokeStyle(lineWidth: 20, lineCap: .round))
+                    .frame(width: 250, height: 250)
+                    .rotationEffect(.degrees(-90))
+                    .animation(.linear(duration: 0.1), value: timerManager.progress)
+
+                VStack(spacing: 5) {
+                    Text(timerManager.timeRemaining.formattedTime)
+                        .font(.system(size: 48, weight: .bold, design: .rounded))
+                        .foregroundColor(.breadBrown)
+                        .monospacedDigit()
+
+                    Text(timerManager.isRunning ? "Running" : "Paused")
+                        .font(.subheadline)
+                        .foregroundColor(.gray)
+                }
+            }
+
+            // Control buttons
+            HStack(spacing: 20) {
+                if timerManager.isRunning {
+                    Button(action: { timerManager.pause() }) {
+                        Label("Pause", systemImage: "pause.fill")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.orange)
+                            .cornerRadius(12)
+                    }
+                } else {
+                    Button(action: { timerManager.resume() }) {
+                        Label("Resume", systemImage: "play.fill")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.green)
+                            .cornerRadius(12)
+                    }
+                }
+
+                Button(action: { timerManager.reset() }) {
+                    Label("Reset", systemImage: "arrow.clockwise")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.red)
+                        .cornerRadius(12)
+                }
+            }
+        }
+        .padding()
+        .background(Color.white.opacity(0.9))
+        .cornerRadius(20)
+        .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 5)
+    }
+}
+
+struct PresetTimerButton: View {
+    let preset: TimerPreset
+    @ObservedObject private var timerManager = TimerManager.shared
+
+    var body: some View {
+        Button(action: {
+            timerManager.start(duration: preset.duration, name: preset.name)
+        }) {
+            VStack(spacing: 12) {
+                Image(systemName: preset.icon)
+                    .font(.system(size: 40))
+                    .foregroundColor(preset.color)
+
+                Text(preset.name)
+                    .font(.headline)
+                    .foregroundColor(.primary)
+
+                Text(preset.duration.shortFormattedTime)
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            }
+            .frame(maxWidth: .infinity)
             .padding()
+            .background(Color.white.opacity(0.9))
+            .cornerRadius(15)
+            .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+        }
+    }
+}
+
+struct CustomTimerSheet: View {
+    @Binding var minutes: String
+    @Binding var timerName: String
+    let onStart: () -> Void
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color.breadBeige.ignoresSafeArea()
+
+                VStack(spacing: 25) {
+                    Text("Create Custom Timer")
+                        .font(.title2.bold())
+                        .foregroundColor(.breadBrown)
+                        .padding(.top)
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Timer Name")
+                            .font(.headline)
+                            .foregroundColor(.breadBrown)
+
+                        TextField("e.g., Final Proof", text: $timerName)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .padding(.horizontal)
+                    }
+                    .padding(.horizontal)
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Duration (minutes)")
+                            .font(.headline)
+                            .foregroundColor(.breadBrown)
+
+                        TextField("Enter minutes", text: $minutes)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .keyboardType(.numberPad)
+                            .padding(.horizontal)
+                    }
+                    .padding(.horizontal)
+
+                    Button(action: {
+                        onStart()
+                    }) {
+                        Text("Start Timer")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(
+                                (Int(minutes) ?? 0) > 0 ? Color.breadBrown : Color.gray
+                            )
+                            .cornerRadius(12)
+                    }
+                    .disabled((Int(minutes) ?? 0) <= 0)
+                    .padding(.horizontal)
+
+                    Spacer()
+                }
+                .padding()
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .foregroundColor(.breadBrown)
+                }
+            }
         }
     }
 }
