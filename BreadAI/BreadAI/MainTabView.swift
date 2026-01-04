@@ -476,299 +476,18 @@ struct MainTabView_Previews: PreviewProvider {
 }
 #endif
 
-// Add temporary models and views until we can properly reference the actual files
-
-// Badge models
-struct Badge: Identifiable {
-    let id = UUID()
-    let name: String
-    let description: String
-    let icon: String  // SF Symbol name
-    let color: Color
-    let isUnlocked: Bool
-    let points: Int
-}
-
-struct BadgeCategory: Identifiable {
-    let id = UUID()
-    let name: String
-    let badges: [Badge]
-}
-
-struct UserProfile {
-    var name: String
-    var level: Int
-    var currentPoints: Int
-    var pointsToNextLevel: Int
-    var profileImage: String  // Default SF Symbol for profile
-    
-    var progressToNextLevel: Double {
-        Double(currentPoints) / Double(pointsToNextLevel)
-    }
-}
-
-// Temporary model for bread categories and types
-struct BreadCategory: Identifiable {
-    let id = UUID()
-    let name: String
-    let breads: [Bread]
-}
-
-struct Bread: Identifiable {
-    let id = UUID()
-    let name: String
-    let isSourdough: Bool
-    let image: String // Image name in assets
-    
-    init(name: String, isSourdough: Bool = false, image: String = "bread.ai logo no background") {
-        self.name = name
-        self.isSourdough = isSourdough
-        self.image = image
-    }
-}
-
-// Temporary BreadData class
-class BreadData {
-    static let categories: [BreadCategory] = [
-        BreadCategory(name: "Yeast-Based Breads", breads: [
-            Bread(name: "Sourdough", isSourdough: true), // Moved to first position
-            Bread(name: "White Sandwich Bread"),
-            Bread(name: "Whole Wheat Bread"),
-            Bread(name: "Brioche"),
-            Bread(name: "Challah"),
-            Bread(name: "Focaccia"),
-            Bread(name: "Ciabatta"),
-            Bread(name: "Bagels"),
-            Bread(name: "Dinner Rolls")
-        ]),
-        BreadCategory(name: "Flatbreads", breads: [
-            Bread(name: "Naan"),
-            Bread(name: "Pita"),
-            Bread(name: "Tortillas"),
-            Bread(name: "Lefse")
-        ]),
-        BreadCategory(name: "Quick Breads (No Yeast)", breads: [
-            Bread(name: "Banana Bread"),
-            Bread(name: "Zucchini Bread"),
-            Bread(name: "Pumpkin Bread"),
-            Bread(name: "Cornbread"),
-            Bread(name: "Beer Bread")
-        ]),
-        BreadCategory(name: "Specialty and Ethnic Breads", breads: [
-            Bread(name: "Rye Bread"),
-            Bread(name: "Irish Soda Bread"),
-            Bread(name: "Lavash"),
-            Bread(name: "Anadama Bread")
-        ])
-    ]
-}
-
-// Temporary BreadCardView
-struct BreadCardView: View {
-    let bread: Bread
-    
-    var body: some View {
-        VStack {
-            Image(bread.image)
-                .resizable()
-                .scaledToFit()
-                .frame(height: 80)
-                .padding(.top, 10)
-            
-            Text(bread.name)
-                .font(.system(size: 14, weight: .medium))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-        }
-        .frame(width: 120, height: 140)
-        .background(Color.white.opacity(0.9))
-        .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
-        .padding(.vertical, 5)
-        .padding(.horizontal, 5)
-    }
-}
-
-// Temporary RecipeDetailView
-struct RecipeDetailView: View {
-    let bread: Bread
-    
-    var body: some View {
-        if bread.isSourdough {
-            SourdoughRecipeView()
-        } else {
-            ComingSoonRecipeView(breadType: bread.name)
-        }
-    }
-}
-
-struct SourdoughRecipeView: View {
-    var body: some View {
-        ZStack {
-            Color.breadBeige.ignoresSafeArea()
-            
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    Text("Sourdough Bread")
-                        .font(.largeTitle.bold())
-                        .foregroundColor(.breadBrown)
-                        .padding()
-                    
-                    Text("Full recipe coming soon!")
-                        .padding()
-                    
-                    Spacer()
-                }
-            }
-        }
-        .navigationTitle("Sourdough Recipe")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
-struct ComingSoonRecipeView: View {
-    let breadType: String
-    
-    var body: some View {
-        ZStack {
-            Color.breadBeige.ignoresSafeArea()
-            
-            VStack(spacing: 30) {
-                Image("bread.ai logo no background")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 120)
-                
-                Text(breadType)
-                    .font(.largeTitle.bold())
-                    .foregroundColor(.breadBrown)
-                
-                Text("Recipe Coming Soon!")
-                    .font(.title2)
-                    .foregroundColor(.gray)
-                    .padding()
-                
-                Spacer()
-            }
-            .padding(.top, 50)
-        }
-        .navigationTitle(breadType)
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-struct CategoryHeaderView: View {
-    let title: String
-    
-    var body: some View {
-        HStack {
-            Text(title)
-                .font(.title2.bold())
-                .foregroundColor(.breadBrown)
-                .padding(.leading)
-            
-            Spacer()
-        }
-        .padding(.top)
-    }
-}
-
-// Implementation of missing views
-struct UserProfileHeader: View {
-    let profile: UserProfile
-    
-    var body: some View {
-        VStack(spacing: 15) {
-            // Profile Image
-            ZStack {
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: 110, height: 110)
-                    .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 3)
-                
-                if profile.profileImage.hasPrefix("person") {
-                    // Use SF Symbol for default profile
-                    Image(systemName: profile.profileImage)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 90, height: 90)
-                        .foregroundColor(.breadBrown)
-                } else {
-                    // Use image from assets
-                    Image(profile.profileImage)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 100, height: 100)
-                        .clipShape(Circle())
-                }
-                
-                // Camera icon to suggest photo can be changed
-                Image(systemName: "camera.fill")
-                    .foregroundColor(.white)
-                    .padding(8)
-                    .background(Circle().fill(Color.breadBrown))
-                    .offset(x: 40, y: 35)
-            }
-            .padding(.top, 20)
-            
-            // User name and level
-            Text(profile.name)
-                .font(.title2.bold())
-            
-            Text("Level \(profile.level)")
-                .font(.headline)
-                .foregroundColor(.breadBrown)
-            
-            // Progress bar to next level
-            VStack(alignment: .leading, spacing: 5) {
-                HStack {
-                    Text("\(profile.currentPoints) / \(profile.pointsToNextLevel) XP")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                    
-                    Spacer()
-                    
-                    Text("Level \(profile.level + 1)")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                }
-                
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        // Background
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(Color.gray.opacity(0.2))
-                            .frame(height: 15)
-                        
-                        // Progress
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(Color.breadBrown)
-                            .frame(width: geometry.size.width * profile.progressToNextLevel, height: 15)
-                    }
-                }
-                .frame(height: 15)
-            }
-            .padding(.horizontal, 30)
-            .padding(.bottom, 20)
-        }
-        .frame(maxWidth: .infinity)
-        .background(Color.white.opacity(0.6))
-        .cornerRadius(20)
-        .padding(.horizontal)
-        .padding(.top, 10)
-    }
-}
+// MARK: - Helper Views for MainTabView
 
 struct BadgeCategoryHeader: View {
     let title: String
-    
+
     var body: some View {
         HStack {
             Text(title)
                 .font(.title2.bold())
                 .foregroundColor(.breadBrown)
                 .padding(.leading)
-            
+
             Spacer()
         }
         .padding(.top, 15)
@@ -776,59 +495,18 @@ struct BadgeCategoryHeader: View {
     }
 }
 
-struct BadgeCard: View {
-    let badge: Badge
-    
-    var body: some View {
-        VStack {
-            Image(systemName: badge.icon)
-                .font(.system(size: 32))
-                .foregroundColor(badge.color)
-                .padding()
-                .background(
-                    Circle()
-                        .fill(badge.color.opacity(0.2))
-                        .frame(width: 70, height: 70)
-                )
-                .padding(.bottom, 5)
-            
-            Text(badge.name)
-                .font(.system(size: 14, weight: .medium))
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .padding(.horizontal, 5)
-            
-            Text("\(badge.points) pts")
-                .font(.caption)
-                .foregroundColor(.gray)
-                .padding(.top, 1)
-        }
-        .frame(width: 130, height: 160)
-        .padding(.vertical, 8)
-        .padding(.horizontal, 8)
-        .background(Color.white.opacity(0.9))
-        .cornerRadius(15)
-        .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
-        .opacity(badge.isUnlocked ? 1.0 : 0.5)
-    }
-}
-
 struct BadgeIconView: View {
     let badge: Badge
-    
+
     var body: some View {
-        let iconSize: CGFloat = 80
-        let circleSize: CGFloat = 180
-        let bgOpacity: Double = 0.2
-        
-        return Image(systemName: badge.icon)
-            .font(.system(size: iconSize))
+        Image(systemName: badge.icon)
+            .font(.system(size: 80))
             .foregroundColor(badge.color)
             .padding()
             .background(
                 Circle()
-                    .fill(badge.color.opacity(bgOpacity))
-                    .frame(width: circleSize, height: circleSize)
+                    .fill(badge.color.opacity(0.2))
+                    .frame(width: 180, height: 180)
             )
             .padding(.top, 30)
     }
@@ -836,10 +514,10 @@ struct BadgeIconView: View {
 
 struct BadgeUnlockOverlay: View {
     let isUnlocked: Bool
-    
+
     var body: some View {
         if !isUnlocked {
-            return AnyView(
+            AnyView(
                 Text("Complete this challenge to unlock")
                     .font(.headline)
                     .padding()
@@ -850,7 +528,7 @@ struct BadgeUnlockOverlay: View {
                     .frame(maxHeight: .infinity, alignment: .bottom)
             )
         } else {
-            return AnyView(EmptyView())
+            AnyView(EmptyView())
         }
     }
 }
