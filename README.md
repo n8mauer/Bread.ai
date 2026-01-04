@@ -1,6 +1,6 @@
 # Bread.ai
 
-Bread.ai is an iOS app that provides AI-powered knowledge about bread. Ask anything about different types of bread, recipes, baking techniques, or bread history, and get instant expert answers powered by Anthropic Claude.
+BreadAI is an interactive React Native application designed to guide users through the bread-making process. Leveraging AI-driven feedback, gamification elements, and intuitive UI components, BreadAI aims to make baking bread an engaging and educational experience.
 
 ## Features
 
