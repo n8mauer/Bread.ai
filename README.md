@@ -1,6 +1,6 @@
 # Bread.ai
 
-BreadAI is an interactive React Native application designed to guide users through the bread-making process. Leveraging AI-driven feedback, gamification elements, and intuitive UI components, BreadAI aims to make baking bread an engaging and educational experience.
+BreadAI is an interactive SwiftUI iOS native application designed to guide users through the bread-making process. Leveraging AI-driven feedback, gamification elements, and intuitive UI components, BreadAI aims to make baking bread an engaging and educational experience.
 
 ## Features
 
